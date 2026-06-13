@@ -48,9 +48,9 @@ PhoneBridge tells you it's **safe to purge** — so you reclaim space without ev
 | 🔌 | Detect connected Android devices (ADB) | ✅ Working |
 | ♻️ | **Content-based dedup across backups** | 🚧 In progress |
 | 🧭 | **Provenance + "safe to purge" advisor** | 🚧 In progress |
-| 📁 | Pick any folder / any phone as a source | 🚧 In progress |
-| 📲 | On-device sync straight from the phone (no SmartSwitch) | 🗺️ Planned |
-| 👤 | Contacts · 🗓️ Calendar · 📝 Notes · 💬 WhatsApp | 🗺️ Planned |
+| 📁 | Pick any folder / any phone as a source | ✅ Working |
+| 📲 | On-device sync straight from the phone (no SmartSwitch) | 🚧 Alpha |
+| 👤 | Contacts · 🗓️ Calendar · 📝 Notes · 💬 WhatsApp | 🚧 Alpha |
 
 ## How it works
 
@@ -65,7 +65,7 @@ PhoneBridge is **Android-generic by design**: Samsung SmartSwitch is the first b
 product boundary. New sources plug in through a single `BackupAdapter` trait.
 
 - **Frontend** — React 19 + TypeScript + Vite
-- **Backend** — Rust (Tauri v2), `rusqlite`, `walkdir`, `zip`
+- **Backend** — Rust (Tauri v2), `rusqlite`, `walkdir`, `zip`, local crypto helpers for user-supplied backup keys
 - **Storage** — local SQLite library at `~/.phonebridge/`, media under a consolidated folder
 - **Design** — see [Art Direction](docs/brand/ART_DIRECTION.md) ("Indigo local-first")
 
@@ -90,7 +90,7 @@ npm run typecheck
 npm run tauri dev
 ```
 
-Before a PR: `npm run typecheck && npm run build && cargo test --manifest-path src-tauri/Cargo.toml`.
+Before a PR: `npm run typecheck && npm test && npm run build && npm audit --audit-level=high && cargo test --manifest-path src-tauri/Cargo.toml`.
 See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Privacy model

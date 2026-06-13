@@ -113,7 +113,24 @@ export interface AdbPullResult {
   sourcePath: string;
   pulledPaths: number;
   skippedPaths: number;
+  pulledFiles: number;
+  skippedFiles: number;
+  totalFiles: number;
   errors: string[];
+}
+
+export interface WhatsAppDecryptConfig {
+  encryptedDbPath: string;
+  keyPath?: string;
+  keyHex?: string;
+  outputPath: string;
+}
+
+export interface WhatsAppDecryptResult {
+  outputPath: string;
+  messageCount: number;
+  chatCount: number;
+  records: StructuredRecord[];
 }
 
 export interface ConsolidationConfig {

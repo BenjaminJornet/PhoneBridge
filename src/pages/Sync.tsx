@@ -50,7 +50,7 @@ export default function Sync() {
   const [backupCoverage, setBackupCoverage] = useState<BackupCoverage[]>([]);
   const [progress, setProgress] = useState<{ processedFiles: number; totalFiles: number; currentPath: string } | null>(null);
   const [syncProgress, setSyncProgress] = useState<{ copiedFiles: number; skippedFiles: number; currentPath: string } | null>(null);
-  const [adbPullProgress, setAdbPullProgress] = useState<{ pulledPaths: number; skippedPaths: number; currentPath: string } | null>(null);
+  const [adbPullProgress, setAdbPullProgress] = useState<{ pulledPaths: number; skippedPaths: number; pulledFiles: number; skippedFiles: number; totalFiles: number; currentPath: string } | null>(null);
   const [status, setStatus] = useState("Ready");
 
   useEffect(() => {
@@ -110,7 +110,7 @@ export default function Sync() {
         };
       }
     });
-    listen<{ pulledPaths: number; skippedPaths: number; currentPath: string }>("adb-pull-progress", (event) => {
+    listen<{ pulledPaths: number; skippedPaths: number; pulledFiles: number; skippedFiles: number; totalFiles: number; currentPath: string }>("adb-pull-progress", (event) => {
       if (!cancelled) {
         setAdbPullProgress(event.payload);
       }
@@ -370,14 +370,16 @@ export default function Sync() {
         )}
         {adbPullResult && (
           <div className="summaryBox">
-            <strong>{formatCount(adbPullResult.pulledPaths)} paths pulled · {formatCount(adbPullResult.skippedPaths)} skipped</strong>
+            <strong>{formatCount(adbPullResult.pulledFiles)} files pulled · {formatCount(adbPullResult.skippedFiles)} skipped</strong>
+            <span>{formatCount(adbPullResult.pulledPaths)} paths scanned · {formatCount(adbPullResult.totalFiles)} files discovered</span>
             <span>Staging source: {adbPullResult.sourcePath}</span>
             {adbPullResult.errors.length > 0 && <small>{adbPullResult.errors.length} warning(s): {adbPullResult.errors[0]}</small>}
           </div>
         )}
         {adbPullProgress && (
           <div className="summaryBox">
-            <strong>{formatCount(adbPullProgress.pulledPaths)} paths pulled · {formatCount(adbPullProgress.skippedPaths)} skipped</strong>
+            <strong>{formatCount(adbPullProgress.pulledFiles)} / {formatCount(adbPullProgress.totalFiles)} files pulled</strong>
+            <span>{formatCount(adbPullProgress.pulledPaths)} paths done · {formatCount(adbPullProgress.skippedPaths)} paths skipped</span>
             <span>{adbPullProgress.currentPath}</span>
           </div>
         )}

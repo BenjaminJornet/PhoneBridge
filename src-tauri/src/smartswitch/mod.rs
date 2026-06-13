@@ -575,7 +575,34 @@ fn parse_sdoc_text(path: &Path) -> Result<Option<String>, AdapterError> {
     let Some(raw) = note else {
         return Ok(None);
     };
-    extract_sdoc_note_text(&raw).map(Some)
+    let mut text = extract_sdoc_note_text(&raw).unwrap_or_default();
+    text.push_str(&extract_sdoc_page_text(path)?);
+    if text.trim().is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(text))
+    }
+}
+
+fn extract_sdoc_page_text(path: &Path) -> Result<String, AdapterError> {
+    let file = File::open(path)?;
+    let mut archive = ZipArchive::new(file).map_err(invalid_zip)?;
+    let mut output = String::new();
+    for index in 0..archive.len() {
+        let mut entry = archive.by_index(index).map_err(invalid_zip)?;
+        if !entry.name().ends_with(".page") {
+            continue;
+        }
+        let mut raw = Vec::new();
+        entry.read_to_end(&mut raw)?;
+        for text in extract_text_records_from_blob(&raw) {
+            if !output.is_empty() {
+                output.push('\n');
+            }
+            output.push_str(&text);
+        }
+    }
+    Ok(output)
 }
 
 fn extract_sdoc_note_text(data: &[u8]) -> Result<String, AdapterError> {
@@ -626,6 +653,42 @@ fn extract_text_common_text(body: &[u8]) -> Result<String, AdapterError> {
         ));
     }
     utf16le_to_string(&body[text_start..text_end])
+}
+
+fn extract_text_records_from_blob(blob: &[u8]) -> Vec<String> {
+    let mut texts = Vec::new();
+    for offset in 0..blob.len().saturating_sub(14) {
+        let Ok(record_type) = read_u16_at(blob, offset + 4) else {
+            continue;
+        };
+        if record_type != 7 {
+            continue;
+        }
+        let Ok(size) = read_u32_at(blob, offset) else {
+            continue;
+        };
+        let Ok(own_data_offset) = read_u32_at(blob, offset + 6) else {
+            continue;
+        };
+        let text_common_offset = offset + 4 + own_data_offset as usize;
+        let Ok(_text_common_size) = read_u32_at(blob, text_common_offset) else {
+            continue;
+        };
+        let Ok(text_len) = read_u32_at(blob, text_common_offset + 4) else {
+            continue;
+        };
+        let text_start = text_common_offset + 8;
+        let text_end = text_start.saturating_add(text_len as usize * 2);
+        if text_end > blob.len() || offset + size as usize > blob.len() {
+            continue;
+        }
+        if let Ok(text) = utf16le_to_string(&blob[text_start..text_end]) {
+            if !text.trim().is_empty() && !texts.contains(&text) {
+                texts.push(text);
+            }
+        }
+    }
+    texts
 }
 
 fn read_calendar_records(
@@ -1045,20 +1108,49 @@ mod tests {
     }
 
     #[test]
+    fn parses_real_shape_decrypted_contact_fixture() {
+        let temp = tempdir().unwrap();
+        fs::create_dir_all(temp.path().join("CONTACT")).unwrap();
+        write_zip(
+            &temp.path().join("CONTACT/Contact.SPBM"),
+            "CONTACT_JSON.zip/contact_0001.json.enc",
+            &encrypt_fixture(
+                br#"{"contacts":[{"formattedName":"Anon Person","email":"anon@example.test"}]}"#,
+            ),
+        );
+
+        let records = read_structured_records(temp.path(), "backup").unwrap();
+        assert!(records.iter().any(|item| item.kind == "contact"
+            && item.title == "Anon Person"
+            && item.subtitle.as_deref() == Some("anon@example.test")));
+    }
+
+    #[test]
     fn extracts_text_from_sdocx_note() {
         let temp = tempdir().unwrap();
         fs::create_dir_all(temp.path().join("SAMSUNGNOTE")).unwrap();
         let note_path = temp.path().join("SAMSUNGNOTE/note.sdocx");
-        write_zip(
-            &note_path,
-            "note.note",
-            &sdoc_note_fixture("Typed note\nBody"),
-        );
+        write_sdocx_fixture(&note_path, "Typed note\nBody", "Canvas text box");
 
         let records = read_structured_records(temp.path(), "backup").unwrap();
         assert!(records.iter().any(|item| item.kind == "note"
             && item.title == "Typed note"
             && item.parse_status == "parsed_sdocx_text"));
+        assert!(records
+            .iter()
+            .any(|item| item.kind == "note" && item.subtitle.as_deref() == Some("30 characters")));
+    }
+
+    fn write_sdocx_fixture(path: &Path, body_text: &str, page_text: &str) {
+        let file = File::create(path).unwrap();
+        let mut zip = ZipWriter::new(file);
+        zip.start_file("note.note", SimpleFileOptions::default())
+            .unwrap();
+        zip.write_all(&sdoc_note_fixture(body_text)).unwrap();
+        zip.start_file("page-1.page", SimpleFileOptions::default())
+            .unwrap();
+        zip.write_all(&sdoc_page_fixture(page_text)).unwrap();
+        zip.finish().unwrap();
     }
 
     fn write_zip(path: &Path, name: &str, bytes: &[u8]) {
@@ -1122,6 +1214,29 @@ mod tests {
         append_u32(&mut note, body.len() as u32);
         note.extend_from_slice(&body);
         note
+    }
+
+    fn sdoc_page_fixture(text: &str) -> Vec<u8> {
+        let mut blob = vec![0xaa; 20];
+        append_shape_text(&mut blob, text);
+        blob.extend_from_slice(&[0xbb; 20]);
+        blob
+    }
+
+    fn append_shape_text(bytes: &mut Vec<u8>, text: &str) {
+        let text_units: Vec<u16> = text.encode_utf16().collect();
+        let text_common_size = 8 + text_units.len() * 2;
+        let own_data_offset = 12_u32;
+        let shape_text_size = own_data_offset as usize + text_common_size;
+        append_u32(bytes, shape_text_size as u32);
+        append_u16(bytes, 7);
+        append_u32(bytes, own_data_offset);
+        bytes.extend_from_slice(&[0; 6]);
+        append_u32(bytes, text_common_size as u32);
+        append_u32(bytes, text_units.len() as u32);
+        for unit in text_units {
+            append_u16(bytes, unit);
+        }
     }
 
     fn append_u16(bytes: &mut Vec<u8>, value: u16) {

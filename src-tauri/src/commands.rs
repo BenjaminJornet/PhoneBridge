@@ -8,6 +8,7 @@ use crate::smartswitch::{
     self, SmartSwitchArchiveInventory, SmartSwitchItemMetric, StructuredRecord,
 };
 use crate::sync::{self, SmartSwitchCategory, SmartSwitchSyncConfig, SmartSwitchSyncResult};
+use crate::whatsapp::{self, WhatsAppDecryptConfig, WhatsAppDecryptResult};
 use std::path::PathBuf;
 
 #[tauri::command]
@@ -82,6 +83,16 @@ pub fn get_smartswitch_archive_inventory() -> Result<Vec<SmartSwitchArchiveInven
 #[tauri::command]
 pub fn get_structured_records() -> Result<Vec<StructuredRecord>, String> {
     smartswitch::read_default_structured_records().map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+pub async fn decrypt_whatsapp_database(
+    config: WhatsAppDecryptConfig,
+) -> Result<WhatsAppDecryptResult, String> {
+    tauri::async_runtime::spawn_blocking(move || whatsapp::decrypt_whatsapp_database(config))
+        .await
+        .map_err(|err| err.to_string())?
+        .map_err(|err| err.to_string())
 }
 
 #[tauri::command]

@@ -7,6 +7,7 @@ mod media;
 mod privacy;
 mod smartswitch;
 mod sync;
+mod whatsapp;
 
 pub fn run() {
     tauri::Builder::default()
@@ -23,6 +24,7 @@ pub fn run() {
             commands::list_indexed_files,
             commands::plan_consolidation,
             commands::pull_from_device,
+            commands::decrypt_whatsapp_database,
             commands::run_consolidation,
             commands::run_smartswitch_sync,
             commands::scan_backup_sources,

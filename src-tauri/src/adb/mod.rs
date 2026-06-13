@@ -24,6 +24,9 @@ const ADB_MEDIA_PATHS: [(&str, &str); 6] = [
 pub struct AdbPullProgress {
     pub pulled_paths: u64,
     pub skipped_paths: u64,
+    pub pulled_files: u64,
+    pub skipped_files: u64,
+    pub total_files: u64,
     pub current_path: String,
 }
 
@@ -33,6 +36,9 @@ pub struct AdbPullResult {
     pub source_path: String,
     pub pulled_paths: u64,
     pub skipped_paths: u64,
+    pub pulled_files: u64,
+    pub skipped_files: u64,
+    pub total_files: u64,
     pub errors: Vec<String>,
 }
 
@@ -128,10 +134,31 @@ pub fn pull_device_media(
         source_path: source_path.to_string_lossy().into_owned(),
         pulled_paths: 0,
         skipped_paths: 0,
+        pulled_files: 0,
+        skipped_files: 0,
+        total_files: 0,
         errors: Vec::new(),
     };
 
     for (label, remote_path) in ADB_MEDIA_PATHS {
+        if let Ok(files) = list_remote_files(serial, remote_path) {
+            result.total_files += files.len() as u64;
+            let local_root = source_path.join(label);
+            for remote_file in files {
+                emit_pull_progress(window.as_ref(), &result, &remote_file);
+                match pull_remote_file(serial, remote_path, &remote_file, &local_root) {
+                    Ok(()) => result.pulled_files += 1,
+                    Err(err) => {
+                        result.skipped_files += 1;
+                        result.errors.push(err.to_string());
+                    }
+                }
+            }
+            result.pulled_paths += 1;
+            emit_pull_progress(window.as_ref(), &result, remote_path);
+            continue;
+        }
+
         emit_pull_progress(window.as_ref(), &result, remote_path);
         let local_path = source_path.join(label);
         match adb_pull(serial, remote_path, &local_path) {
@@ -147,6 +174,35 @@ pub fn pull_device_media(
     }
 
     Ok(result)
+}
+
+fn list_remote_files(serial: &str, remote_path: &str) -> Result<Vec<String>, AdapterError> {
+    let output = adb_output(&["-s", serial, "shell", "find", remote_path, "-type", "f"])?;
+    let files: Vec<String> = output
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.contains("Permission denied"))
+        .map(ToString::to_string)
+        .collect();
+    if files.is_empty() {
+        return Err(AdapterError::CommandFailed(format!(
+            "adb find found no files at {remote_path}"
+        )));
+    }
+    Ok(files)
+}
+
+fn pull_remote_file(
+    serial: &str,
+    remote_root: &str,
+    remote_file: &str,
+    local_root: &Path,
+) -> Result<(), AdapterError> {
+    let relative = remote_file
+        .trim_start_matches(remote_root.trim_end_matches('/'))
+        .trim_start_matches('/');
+    let local_path = local_root.join(relative);
+    adb_pull(serial, remote_file, &local_path)
 }
 
 fn adb_pull(serial: &str, remote_path: &str, local_path: &Path) -> Result<(), AdapterError> {
@@ -177,6 +233,9 @@ fn emit_pull_progress(window: Option<&Window>, result: &AdbPullResult, current_p
             AdbPullProgress {
                 pulled_paths: result.pulled_paths,
                 skipped_paths: result.skipped_paths,
+                pulled_files: result.pulled_files,
+                skipped_files: result.skipped_files,
+                total_files: result.total_files,
                 current_path: current_path.to_string(),
             },
         );

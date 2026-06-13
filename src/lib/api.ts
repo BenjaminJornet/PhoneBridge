@@ -16,6 +16,8 @@ import type {
   SmartSwitchSyncConfig,
   SmartSwitchSyncResult,
   StructuredRecord,
+  WhatsAppDecryptConfig,
+  WhatsAppDecryptResult,
 } from "./types";
 
 function hasTauriRuntime(): boolean {
@@ -51,8 +53,20 @@ export function pullFromDevice(sourceId: string, destinationPath: string): Promi
     sourcePath: destinationPath,
     pulledPaths: 0,
     skippedPaths: 0,
+    pulledFiles: 0,
+    skippedFiles: 0,
+    totalFiles: 0,
     errors: [],
   }, { sourceId, destinationPath });
+}
+
+export function decryptWhatsAppDatabase(config: WhatsAppDecryptConfig): Promise<WhatsAppDecryptResult> {
+  return invokeIfAvailable("decrypt_whatsapp_database", {
+    outputPath: config.outputPath,
+    messageCount: 0,
+    chatCount: 0,
+    records: [],
+  }, { config });
 }
 
 export function indexMultimedia(sourcePath: string): Promise<IndexSummary> {
