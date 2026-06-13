@@ -16,7 +16,11 @@ Before opening a PR, run:
 
 ```bash
 npm run typecheck
+npm test
 npm run build
+npm audit --audit-level=high
+cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
+cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings
 cargo test --manifest-path src-tauri/Cargo.toml
 ```
 

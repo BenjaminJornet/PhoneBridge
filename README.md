@@ -11,6 +11,8 @@ contacts, messages, notes, and calendar from every backup — merged once, dedup
 full provenance so you can safely purge the old backups.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-4F46E5.svg)](LICENSE)
+![CI](https://github.com/BenjaminJornet/PhoneBridge/actions/workflows/ci.yml/badge.svg)
+![Release](https://github.com/BenjaminJornet/PhoneBridge/actions/workflows/release.yml/badge.svg)
 ![Tauri](https://img.shields.io/badge/Tauri-2-22D3EE)
 ![Rust](https://img.shields.io/badge/Rust-1.88-1B1F3B)
 ![React](https://img.shields.io/badge/React-19-6366F1)
@@ -50,7 +52,7 @@ PhoneBridge tells you it's **safe to purge** — so you reclaim space without ev
 | 🧭 | **Provenance + "safe to purge" advisor** | 🚧 In progress |
 | 📁 | Pick any folder / any phone as a source | ✅ Working |
 | 📲 | On-device sync straight from the phone (no SmartSwitch) | 🚧 Alpha |
-| 👤 | Contacts · 🗓️ Calendar · 📝 Notes · 💬 WhatsApp | 🚧 Alpha |
+| 👤 | Contacts · 🗓️ Calendar · 📝 Notes · Apps/APKs · 💬 WhatsApp | 🚧 Alpha |
 
 ## How it works
 
@@ -92,6 +94,22 @@ npm run tauri dev
 
 Before a PR: `npm run typecheck && npm test && npm run build && npm audit --audit-level=high && cargo test --manifest-path src-tauri/Cargo.toml`.
 See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## Downloads
+
+Tagged releases build installers with GitHub Actions and attach them to the release page.
+
+- macOS: download the `.dmg`, drag `PhoneBridge.app` to `/Applications`, then open it.
+- Linux: download the `.AppImage` or `.deb`.
+- Windows: download the `.msi` or `.exe`.
+
+If macOS blocks the app because it was downloaded outside the App Store, remove the quarantine attribute locally:
+
+```bash
+xattr -cr /Applications/PhoneBridge.app
+```
+
+This does not notarize the app; it only clears the local download quarantine flag for your copy.
 
 ## Privacy model
 
