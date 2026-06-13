@@ -1,7 +1,11 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
   BackupSource,
+  BackupCoverage,
   CategoryMetric,
+  ConsolidationConfig,
+  ConsolidationPlan,
+  ConsolidationResult,
   IndexedFile,
   IndexSummary,
   SmartSwitchArchiveInventory,
@@ -35,14 +39,14 @@ export function detectAdbDevices(): Promise<BackupSource[]> {
   return invokeIfAvailable("detect_adb_devices", []);
 }
 
-export function indexMultimedia(): Promise<IndexSummary> {
+export function indexMultimedia(sourcePath: string): Promise<IndexSummary> {
   return invokeIfAvailable("index_multimedia", {
     databasePath: "",
-    rootPath: "",
+    rootPath: sourcePath,
     scannedFiles: 0,
     indexedFiles: 0,
     totalBytes: 0,
-  });
+  }, { sourcePath });
 }
 
 export function listIndexedFiles(category?: string, limit = 120): Promise<IndexedFile[]> {
@@ -69,4 +73,42 @@ export function runSmartSwitchSync(config: SmartSwitchSyncConfig): Promise<Smart
     skippedBytes: 0,
     errors: [],
   }, { config });
+}
+
+export function planConsolidation(config: ConsolidationConfig): Promise<ConsolidationPlan> {
+  return invokeIfAvailable("plan_consolidation", {
+    sourcePath: config.sourcePath,
+    destinationPath: config.destinationPath,
+    totalFiles: 0,
+    totalBytes: 0,
+    newFiles: 0,
+    duplicateFiles: 0,
+    newBytes: 0,
+    duplicateBytes: 0,
+  }, { config });
+}
+
+export function runConsolidation(config: ConsolidationConfig): Promise<ConsolidationResult> {
+  return invokeIfAvailable("run_consolidation", {
+    backupId: "",
+    plan: {
+      sourcePath: config.sourcePath,
+      destinationPath: config.destinationPath,
+      totalFiles: 0,
+      totalBytes: 0,
+      newFiles: 0,
+      duplicateFiles: 0,
+      newBytes: 0,
+      duplicateBytes: 0,
+    },
+    copiedFiles: 0,
+    duplicateFiles: 0,
+    copiedBytes: 0,
+    occurrencesRecorded: 0,
+    errors: [],
+  }, { config });
+}
+
+export function listBackupCoverage(): Promise<BackupCoverage[]> {
+  return invokeIfAvailable("list_backup_coverage", []);
 }

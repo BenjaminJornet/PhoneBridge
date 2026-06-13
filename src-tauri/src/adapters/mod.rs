@@ -1,6 +1,4 @@
 use serde::Serialize;
-use std::env;
-use std::path::{Path, PathBuf};
 use thiserror::Error;
 
 pub mod adb_generic;
@@ -51,50 +49,18 @@ pub trait BackupAdapter {
 
 pub fn scan_default_sources() -> Result<Vec<BackupSource>, AdapterError> {
     let mut sources = Vec::new();
-    sources.extend(smartswitch::SmartSwitchAdapter::default().scan()?);
+    sources.extend(smartswitch::SmartSwitchAdapter.scan()?);
     Ok(sources)
 }
 
 pub fn get_local_category_metrics() -> Result<Vec<CategoryMetric>, AdapterError> {
-    let root = samsung_root().join("Multimedia");
     let categories = ["Photo", "Video", "Music", "Documents"];
-    let mut metrics = Vec::new();
-
-    for category in categories {
-        let path = root.join(category);
-        let (count, bytes) = summarize_directory(&path)?;
-        metrics.push(CategoryMetric {
+    Ok(categories
+        .into_iter()
+        .map(|category| CategoryMetric {
             category: category.to_lowercase(),
-            count,
-            bytes,
-        });
-    }
-
-    Ok(metrics)
-}
-
-pub fn samsung_root() -> PathBuf {
-    env::var_os("HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("Samsung")
-}
-
-fn summarize_directory(path: &Path) -> Result<(u64, u64), AdapterError> {
-    if !path.exists() {
-        return Ok((0, 0));
-    }
-
-    let mut count = 0;
-    let mut bytes = 0;
-
-    for entry in walkdir::WalkDir::new(path) {
-        let entry = entry?;
-        if entry.file_type().is_file() {
-            count += 1;
-            bytes += entry.metadata()?.len();
-        }
-    }
-
-    Ok((count, bytes))
+            count: 0,
+            bytes: 0,
+        })
+        .collect())
 }

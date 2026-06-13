@@ -42,7 +42,7 @@ export default function Dashboard() {
         description="PhoneBridge starts with ADB and Samsung SmartSwitch support, then exposes a unified desktop view over media, messages, calls, contacts, notes, calendar data, and apps."
       />
       <div className="statsGrid">
-        <StatsCard label="Local media" value={formatCount(fileCount)} detail="files detected in ~/Samsung/Multimedia" />
+        <StatsCard label="Local media" value={formatCount(fileCount)} detail="files indexed from user-selected folders" />
         <StatsCard label="Media volume" value={formatBytes(byteCount)} detail="photos, videos, music, and documents" />
         <StatsCard label="SmartSwitch" value={formatCount(sources.length)} detail="backup sources detected locally" />
         <StatsCard label="Privacy" value="100% local" detail="no cloud upload, no remote analytics by design" />

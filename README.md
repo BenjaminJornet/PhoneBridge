@@ -42,7 +42,7 @@ PhoneBridge tells you it's **safe to purge** — so you reclaim space without ev
 
 | | Capability | Status |
 |---|---|---|
-| 🗂️ | Index local multimedia into a SQLite library | ✅ Working |
+| 🗂️ | Index user-selected folders into a SQLite library | ✅ Working |
 | 📦 | Detect Samsung SmartSwitch backups + metrics | ✅ Working |
 | 🖼️ | Local gallery with photo previews | ✅ Working |
 | 🔌 | Detect connected Android devices (ADB) | ✅ Working |

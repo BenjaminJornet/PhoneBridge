@@ -28,7 +28,7 @@ export default function Gallery() {
       .then((nextFiles) => {
         if (!cancelled) {
           setFiles(nextFiles);
-          setStatus(nextFiles.length === 0 ? "No indexed files yet. Run Sync > Index local multimedia first." : "Ready");
+          setStatus(nextFiles.length === 0 ? "No indexed files yet. Run Sync > Index selected folder first." : "Ready");
         }
       })
       .catch((cause: unknown) => {

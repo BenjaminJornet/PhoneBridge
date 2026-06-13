@@ -1,14 +1,27 @@
 import { useEffect, useState } from "react";
+import { open } from "@tauri-apps/plugin-dialog";
+import { listen } from "@tauri-apps/api/event";
 import SectionHeader from "../components/SectionHeader";
 import {
   detectAdbDevices,
   indexMultimedia,
+  listBackupCoverage,
+  planConsolidation,
   runSmartSwitchSync,
+  runConsolidation,
   scanBackupSources,
   scanSmartSwitchCategories,
 } from "../lib/api";
 import { formatBytes, formatCount } from "../lib/format";
-import type { BackupSource, IndexSummary, SmartSwitchCategory, SmartSwitchSyncResult } from "../lib/types";
+import type {
+  BackupCoverage,
+  BackupSource,
+  ConsolidationPlan,
+  ConsolidationResult,
+  IndexSummary,
+  SmartSwitchCategory,
+  SmartSwitchSyncResult,
+} from "../lib/types";
 
 const syncSteps = [
   "Detect connected Android devices via ADB",
@@ -23,9 +36,13 @@ export default function Sync() {
   const [selectedSourcePath, setSelectedSourcePath] = useState("");
   const [categories, setCategories] = useState<SmartSwitchCategory[]>([]);
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
-  const [destinationPath, setDestinationPath] = useState("~/Samsung/Multimedia");
+  const [destinationPath, setDestinationPath] = useState("~/.phonebridge/library");
   const [summary, setSummary] = useState<IndexSummary | null>(null);
   const [syncResult, setSyncResult] = useState<SmartSwitchSyncResult | null>(null);
+  const [consolidationPlan, setConsolidationPlan] = useState<ConsolidationPlan | null>(null);
+  const [consolidationResult, setConsolidationResult] = useState<ConsolidationResult | null>(null);
+  const [backupCoverage, setBackupCoverage] = useState<BackupCoverage[]>([]);
+  const [progress, setProgress] = useState<{ processedFiles: number; totalFiles: number; currentPath: string } | null>(null);
   const [status, setStatus] = useState("Ready");
 
   useEffect(() => {
@@ -50,6 +67,28 @@ export default function Sync() {
 
     return () => {
       cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    let unlisten: (() => void) | undefined;
+
+    listen<{ processedFiles: number; totalFiles: number; currentPath: string }>("consolidation-progress", (event) => {
+      if (!cancelled) {
+        setProgress(event.payload);
+      }
+    }).then((nextUnlisten) => {
+      if (cancelled) {
+        nextUnlisten();
+      } else {
+        unlisten = nextUnlisten;
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      unlisten?.();
     };
   }, []);
 
@@ -82,9 +121,14 @@ export default function Sync() {
   }, [selectedSourcePath]);
 
   async function handleIndexMultimedia() {
-    setStatus("Indexing ~/Samsung/Multimedia...");
+    if (!selectedSourcePath) {
+      setStatus("Choose a source folder before indexing.");
+      return;
+    }
+
+    setStatus("Indexing selected folder...");
     try {
-      const nextSummary = await indexMultimedia();
+      const nextSummary = await indexMultimedia(selectedSourcePath);
       setSummary(nextSummary);
       setStatus("Index complete");
     } catch (cause) {
@@ -113,6 +157,76 @@ export default function Sync() {
     }
   }
 
+  function consolidationConfig() {
+    return {
+      sourcePath: selectedSourcePath,
+      destinationPath,
+      adapter: "samsung-smartswitch",
+      label: sources.find((source) => source.path === selectedSourcePath)?.label ?? "SmartSwitch backup",
+    };
+  }
+
+  async function handlePlanConsolidation() {
+    if (!selectedSourcePath) {
+      setStatus("Select a source before planning consolidation.");
+      return;
+    }
+
+    setStatus("Planning content-deduplicated consolidation...");
+    setConsolidationPlan(null);
+    setConsolidationResult(null);
+    try {
+      const plan = await planConsolidation(consolidationConfig());
+      setConsolidationPlan(plan);
+      setStatus("Dry-run plan ready");
+    } catch (cause) {
+      setStatus(cause instanceof Error ? cause.message : String(cause));
+    }
+  }
+
+  async function handleRunConsolidation() {
+    if (!selectedSourcePath) {
+      setStatus("Select a source before consolidation.");
+      return;
+    }
+
+    setStatus("Consolidating by content hash without deleting originals...");
+    setConsolidationResult(null);
+    setProgress(null);
+    try {
+      const result = await runConsolidation(consolidationConfig());
+      setConsolidationResult(result);
+      setConsolidationPlan(result.plan);
+      setBackupCoverage(await listBackupCoverage());
+      setProgress(null);
+      setStatus("Consolidation complete");
+    } catch (cause) {
+      setStatus(cause instanceof Error ? cause.message : String(cause));
+    }
+  }
+
+  async function refreshCoverage() {
+    try {
+      setBackupCoverage(await listBackupCoverage());
+    } catch (cause) {
+      setStatus(cause instanceof Error ? cause.message : String(cause));
+    }
+  }
+
+  async function chooseDestinationFolder() {
+    const selected = await open({ directory: true, multiple: false });
+    if (typeof selected === "string") {
+      setDestinationPath(selected);
+    }
+  }
+
+  async function chooseSourceFolder() {
+    const selected = await open({ directory: true, multiple: false });
+    if (typeof selected === "string") {
+      setSelectedSourcePath(selected);
+    }
+  }
+
   function toggleCategory(category: string) {
     setSelectedCategories((current) =>
       current.includes(category) ? current.filter((item) => item !== category) : [...current, category],
@@ -132,11 +246,17 @@ export default function Sync() {
       />
       <div className="card listCard">
         <div className="syncActions">
+          <button className="primaryButton" onClick={handlePlanConsolidation} type="button">
+            Preview consolidation
+          </button>
+          <button className="primaryButton" onClick={handleRunConsolidation} type="button">
+            Consolidate by content
+          </button>
           <button className="primaryButton" onClick={handleRunSmartSwitchSync} type="button">
             Sync selected SmartSwitch categories
           </button>
           <button className="primaryButton" onClick={handleIndexMultimedia} type="button">
-            Index local multimedia
+            Index selected folder
           </button>
           <span>{status}</span>
         </div>
@@ -154,6 +274,34 @@ export default function Sync() {
             {syncResult.errors.length > 0 && <small>{syncResult.errors.length} warning(s): {syncResult.errors[0]}</small>}
           </div>
         )}
+        {consolidationPlan && (
+          <div className="summaryBox">
+            <strong>
+              {formatCount(consolidationPlan.newFiles)} new · {formatCount(consolidationPlan.duplicateFiles)} duplicates
+            </strong>
+            <span>
+              {formatBytes(consolidationPlan.newBytes)} new · {formatBytes(consolidationPlan.duplicateBytes)} already covered
+            </span>
+            <small>Dry-run source: {consolidationPlan.sourcePath}</small>
+          </div>
+        )}
+        {consolidationResult && (
+          <div className="summaryBox">
+            <strong>
+              {formatCount(consolidationResult.copiedFiles)} stored · {formatCount(consolidationResult.occurrencesRecorded)} occurrences
+            </strong>
+            <span>Backup id: {consolidationResult.backupId}</span>
+            {consolidationResult.errors.length > 0 && (
+              <small>{consolidationResult.errors.length} warning(s): {consolidationResult.errors[0]}</small>
+            )}
+          </div>
+        )}
+        {progress && (
+          <div className="summaryBox">
+            <strong>{formatCount(progress.processedFiles)} / {formatCount(progress.totalFiles)} processed</strong>
+            <span>{progress.currentPath}</span>
+          </div>
+        )}
         <h2>Detected sources</h2>
         {sources.length === 0 ? (
           <p>No backup source or authorized ADB device detected yet.</p>
@@ -169,16 +317,27 @@ export default function Sync() {
               >
                 <strong>{source.label}</strong>
                 <span>{source.adapter}</span>
+                {source.device && (
+                  <small>
+                    {source.device.manufacturer} {source.device.model}
+                    {source.device.androidVersion ? ` · Android ${source.device.androidVersion}` : ""}
+                  </small>
+                )}
                 {source.path && <small>{source.path}</small>}
               </button>
             ))}
           </div>
         )}
         <h2>Destination</h2>
+        <div className="syncActions">
+          <button className="pill" onClick={chooseSourceFolder} type="button">Choose source folder</button>
+          <button className="pill" onClick={chooseDestinationFolder} type="button">Choose destination folder</button>
+        </div>
         <label className="pathField">
           <span>Aggregated target folder</span>
           <input value={destinationPath} onChange={(event) => setDestinationPath(event.target.value)} />
         </label>
+        <small>Content-addressed library target: {destinationPath}</small>
         <h2>SmartSwitch categories</h2>
         <div className="syncActions">
           <button className="pill" onClick={selectAllCategories} type="button">Select all</button>
@@ -211,6 +370,24 @@ export default function Sync() {
             <p>{step}</p>
           </div>
         ))}
+        <h2>Safe-purge advisor</h2>
+        <div className="syncActions">
+          <button className="pill" onClick={refreshCoverage} type="button">Refresh coverage</button>
+        </div>
+        {backupCoverage.length === 0 ? (
+          <p>No consolidated backups recorded yet.</p>
+        ) : (
+          <div className="sourceList">
+            {backupCoverage.map((backup) => (
+              <div className="sourceRow" key={backup.backupId}>
+                <strong>{backup.label}</strong>
+                <span>{backup.coveragePercent.toFixed(1)}% covered · {backup.safeToDelete ? "safe to delete original" : "keep original"}</span>
+                <small>{formatCount(backup.coveredFiles)} / {formatCount(backup.totalFiles)} files · {formatBytes(backup.reclaimableBytes)} reclaimable</small>
+                <small>{backup.sourcePath}</small>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </section>
   );

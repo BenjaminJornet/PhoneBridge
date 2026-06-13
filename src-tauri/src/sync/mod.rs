@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::fs;
+use std::fs::File;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 use walkdir::WalkDir;
@@ -196,12 +197,33 @@ fn sync_category(
         if let Some(parent) = target.parent() {
             fs::create_dir_all(parent)?;
         }
-        fs::copy(entry.path(), &target)?;
+        atomic_copy(entry.path(), &target)?;
         result.copied_files += 1;
         result.copied_bytes += source_size;
     }
 
     Ok(())
+}
+
+fn atomic_copy(source: &Path, target: &Path) -> Result<(), SyncError> {
+    let tmp_target = temporary_copy_path(target);
+    if tmp_target.exists() {
+        fs::remove_file(&tmp_target)?;
+    }
+
+    fs::copy(source, &tmp_target)?;
+    File::open(&tmp_target)?.sync_all()?;
+    fs::rename(&tmp_target, target)?;
+
+    Ok(())
+}
+
+fn temporary_copy_path(target: &Path) -> PathBuf {
+    let file_name = target
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or("phonebridge-copy");
+    target.with_file_name(format!(".{file_name}.phonebridge.tmp"))
 }
 
 #[cfg(test)]
@@ -250,9 +272,23 @@ mod tests {
     }
 
     #[test]
+    fn atomic_copy_does_not_leave_temp_file_after_success() {
+        let temp = tempdir().unwrap();
+        let source = temp.path().join("source.jpg");
+        let target = temp.path().join("nested/target.jpg");
+        fs::create_dir_all(target.parent().unwrap()).unwrap();
+        fs::write(&source, [1, 2, 3, 4]).unwrap();
+
+        atomic_copy(&source, &target).unwrap();
+
+        assert_eq!(fs::read(&target).unwrap(), vec![1, 2, 3, 4]);
+        assert!(!temporary_copy_path(&target).exists());
+    }
+
+    #[test]
     fn expands_home_prefix() {
-        let expanded = expand_home("~/Samsung/Multimedia");
-        assert!(expanded.ends_with("Samsung/Multimedia"));
+        let expanded = expand_home("~/.phonebridge/library");
+        assert!(expanded.ends_with(".phonebridge/library"));
         assert!(!expanded.to_string_lossy().starts_with("~"));
     }
 }

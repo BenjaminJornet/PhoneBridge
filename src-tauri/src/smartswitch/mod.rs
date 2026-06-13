@@ -49,7 +49,7 @@ struct ReqItem {
 }
 
 pub fn read_default_item_metrics() -> Result<Vec<SmartSwitchItemMetric>, AdapterError> {
-    let sources = SmartSwitchAdapter::default().scan()?;
+    let sources = SmartSwitchAdapter.scan()?;
     let mut metrics = Vec::new();
 
     for source in sources {
@@ -67,7 +67,7 @@ pub fn read_default_item_metrics() -> Result<Vec<SmartSwitchItemMetric>, Adapter
 }
 
 pub fn read_default_archive_inventory() -> Result<Vec<SmartSwitchArchiveInventory>, AdapterError> {
-    let sources = SmartSwitchAdapter::default().scan()?;
+    let sources = SmartSwitchAdapter.scan()?;
     let mut inventories = Vec::new();
 
     for source in sources {
@@ -205,16 +205,16 @@ mod tests {
         let temp = tempdir().unwrap();
         fs::write(
             temp.path().join("ReqItemsInfo.json"),
-            r#"{"ListItems":[{"ViewCount":588,"ContentCount":588,"Type":"CONTACT","Size":9139200},{"ViewCount":4176,"ContentCount":4176,"Type":"MESSAGE","Size":72537846}]}"#,
+            r#"{"ListItems":[{"ViewCount":12,"ContentCount":12,"Type":"CONTACT","Size":2048},{"ViewCount":34,"ContentCount":34,"Type":"MESSAGE","Size":4096}]}"#,
         )
         .unwrap();
 
         let metrics = read_item_metrics(temp.path(), "backup-1", "Galaxy Backup").unwrap();
         assert_eq!(metrics.len(), 2);
         assert_eq!(metrics[0].item_type, "CONTACT");
-        assert_eq!(metrics[0].content_count, 588);
+        assert_eq!(metrics[0].content_count, 12);
         assert_eq!(metrics[1].item_type, "MESSAGE");
-        assert_eq!(metrics[1].size_bytes, 72537846);
+        assert_eq!(metrics[1].size_bytes, 4096);
     }
 
     #[test]

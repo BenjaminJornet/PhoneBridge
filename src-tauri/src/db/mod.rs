@@ -1,4 +1,4 @@
-use crate::adapters::{samsung_root, CategoryMetric};
+use crate::adapters::CategoryMetric;
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
 use std::env;
@@ -10,6 +10,7 @@ use walkdir::WalkDir;
 const APP_DIR_NAME: &str = ".phonebridge";
 const DB_FILE_NAME: &str = "phonebridge.sqlite3";
 const MULTIMEDIA_CATEGORIES: [&str; 4] = ["Photo", "Video", "Music", "Documents"];
+const CURRENT_SCHEMA_VERSION: i64 = 2;
 
 #[derive(Debug, Error)]
 pub enum DbError {
@@ -60,6 +61,29 @@ pub fn initialize(connection: &Connection) -> Result<(), DbError> {
         "
         PRAGMA journal_mode = WAL;
         PRAGMA foreign_keys = ON;
+        ",
+    )?;
+
+    let version = schema_version(connection)?;
+    if version < CURRENT_SCHEMA_VERSION {
+        if version < 1 {
+            migrate_to_v1(connection)?;
+        }
+        if version < 2 {
+            migrate_to_v2(connection)?;
+        }
+    }
+
+    Ok(())
+}
+
+fn schema_version(connection: &Connection) -> Result<i64, DbError> {
+    Ok(connection.query_row("PRAGMA user_version", [], |row| row.get(0))?)
+}
+
+fn migrate_to_v1(connection: &Connection) -> Result<(), DbError> {
+    connection.execute_batch(
+        "
 
         CREATE TABLE IF NOT EXISTS scan_runs (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -86,16 +110,73 @@ pub fn initialize(connection: &Connection) -> Result<(), DbError> {
         CREATE INDEX IF NOT EXISTS idx_files_category ON files(category);
         CREATE INDEX IF NOT EXISTS idx_files_source ON files(source);
         CREATE INDEX IF NOT EXISTS idx_files_size ON files(size_bytes);
+
+        PRAGMA user_version = 1;
         ",
     )?;
 
     Ok(())
 }
 
-pub fn index_default_multimedia() -> Result<IndexSummary, DbError> {
-    let root = samsung_root().join("Multimedia");
+fn migrate_to_v2(connection: &Connection) -> Result<(), DbError> {
+    connection.execute_batch(
+        "
+        CREATE TABLE IF NOT EXISTS contents (
+          hash TEXT PRIMARY KEY,
+          size_bytes INTEGER NOT NULL,
+          extension TEXT,
+          storage_path TEXT NOT NULL,
+          first_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS backups (
+          id TEXT PRIMARY KEY,
+          adapter TEXT NOT NULL,
+          label TEXT NOT NULL,
+          source_path TEXT NOT NULL,
+          imported_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS occurrences (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          content_hash TEXT NOT NULL REFERENCES contents(hash) ON DELETE CASCADE,
+          backup_id TEXT NOT NULL REFERENCES backups(id) ON DELETE CASCADE,
+          original_path TEXT NOT NULL,
+          original_mtime INTEGER,
+          UNIQUE(content_hash, backup_id, original_path)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_occurrences_backup ON occurrences(backup_id);
+        CREATE INDEX IF NOT EXISTS idx_occurrences_content ON occurrences(content_hash);
+
+        PRAGMA user_version = 2;
+        ",
+    )?;
+
+    Ok(())
+}
+
+pub fn index_folder(source_path: String) -> Result<IndexSummary, DbError> {
+    let root = expand_home(&source_path);
     let mut connection = open_default_connection()?;
     index_multimedia(&mut connection, &root)
+}
+
+fn expand_home(path: &str) -> PathBuf {
+    if path == "~" {
+        return env::var_os("HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from(path));
+    }
+
+    if let Some(rest) = path.strip_prefix("~/") {
+        return env::var_os("HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join(rest);
+    }
+
+    PathBuf::from(path)
 }
 
 pub fn get_indexed_category_metrics() -> Result<Vec<CategoryMetric>, DbError> {
@@ -372,5 +453,25 @@ mod tests {
         assert_eq!(files.len(), 1);
         assert_eq!(files[0].relative_path, "Photo/DCIM/image.jpg");
         assert_eq!(files[0].source, "DCIM");
+    }
+
+    #[test]
+    fn initializes_versioned_schema() {
+        let connection = Connection::open_in_memory().unwrap();
+        initialize(&connection).unwrap();
+
+        let version: i64 = connection
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, CURRENT_SCHEMA_VERSION);
+
+        let contents_count: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'contents'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(contents_count, 1);
     }
 }

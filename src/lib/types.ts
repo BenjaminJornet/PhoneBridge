@@ -100,3 +100,44 @@ export interface SmartSwitchSyncResult {
   skippedBytes: number;
   errors: string[];
 }
+
+export interface ConsolidationConfig {
+  sourcePath: string;
+  destinationPath: string;
+  adapter: string;
+  label: string;
+}
+
+export interface ConsolidationPlan {
+  sourcePath: string;
+  destinationPath: string;
+  totalFiles: number;
+  totalBytes: number;
+  newFiles: number;
+  duplicateFiles: number;
+  newBytes: number;
+  duplicateBytes: number;
+}
+
+export interface ConsolidationResult {
+  backupId: string;
+  plan: ConsolidationPlan;
+  copiedFiles: number;
+  duplicateFiles: number;
+  copiedBytes: number;
+  occurrencesRecorded: number;
+  errors: string[];
+}
+
+export interface BackupCoverage {
+  backupId: string;
+  label: string;
+  sourcePath: string;
+  totalFiles: number;
+  coveredFiles: number;
+  totalBytes: number;
+  coveredBytes: number;
+  coveragePercent: number;
+  reclaimableBytes: number;
+  safeToDelete: boolean;
+}

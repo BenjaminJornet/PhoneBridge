@@ -46,7 +46,7 @@ export default function DataExplorer() {
       <SectionHeader
         eyebrow="Structured data"
         title="Beyond media: parse what SmartSwitch already contains."
-        description="The current backup includes contacts, 4,176 messages, 2,500 call log entries, calendar data, notes, app metadata, and permissions."
+        description="SmartSwitch backups can include contacts, messages, call logs, calendar data, notes, app metadata, and permissions."
       />
       <div className="dataGrid">
         {metrics.map((metric) => (
