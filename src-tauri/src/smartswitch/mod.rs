@@ -6,6 +6,9 @@ use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 use zip::ZipArchive;
 
+const BROWSER_STATUS: &str = "inventory_only_proprietary_payload";
+const WHATSAPP_MESSAGE_STATUS: &str = "encrypted_whatsapp_message_database";
+
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SmartSwitchItemMetric {
@@ -132,7 +135,203 @@ fn read_structured_records(
     let mut records = Vec::new();
     records.extend(read_calendar_records(backup_path, backup_id)?);
     records.extend(read_note_records(backup_path, backup_id)?);
+    records.extend(read_browser_records(backup_path, backup_id)?);
+    records.extend(read_whatsapp_message_records(backup_path, backup_id)?);
     records.extend(read_status_records(backup_path, backup_id)?);
+    Ok(records)
+}
+
+fn read_browser_records(
+    backup_path: &Path,
+    backup_id: &str,
+) -> Result<Vec<StructuredRecord>, AdapterError> {
+    let folder = backup_path.join("SBROWSER");
+    if !folder.exists() {
+        return Ok(Vec::new());
+    }
+
+    let mut records = Vec::new();
+    for entry in walkdir::WalkDir::new(&folder) {
+        let entry = entry?;
+        if !entry.file_type().is_file() {
+            continue;
+        }
+        let path = entry.path();
+        let extension = path
+            .extension()
+            .and_then(|value| value.to_str())
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+
+        match extension.as_str() {
+            "json" => records.extend(parse_browser_json(backup_id, path)?),
+            "html" | "htm" => records.extend(parse_browser_html(backup_id, path)?),
+            _ => {}
+        }
+    }
+
+    if records.is_empty() {
+        records.push(status_record(backup_id, "browser", &folder, BROWSER_STATUS));
+    }
+
+    Ok(records)
+}
+
+fn parse_browser_json(backup_id: &str, path: &Path) -> Result<Vec<StructuredRecord>, AdapterError> {
+    let raw = fs::read_to_string(path)?;
+    let parsed: serde_json::Value = serde_json::from_str(&raw)?;
+    let mut records = Vec::new();
+    collect_browser_json_records(backup_id, path, &parsed, &mut records);
+    Ok(records)
+}
+
+fn collect_browser_json_records(
+    backup_id: &str,
+    path: &Path,
+    value: &serde_json::Value,
+    records: &mut Vec<StructuredRecord>,
+) {
+    match value {
+        serde_json::Value::Array(items) => {
+            for item in items {
+                collect_browser_json_records(backup_id, path, item, records);
+            }
+        }
+        serde_json::Value::Object(map) => {
+            let title = first_string(map, &["title", "name"]);
+            let url = first_string(map, &["url", "uri"]);
+            if title.is_some() || url.is_some() {
+                let fallback = url.clone().unwrap_or_else(|| "Browser record".to_string());
+                records.push(StructuredRecord {
+                    id: format!(
+                        "{backup_id}:browser:{}:{}",
+                        path.to_string_lossy(),
+                        records.len()
+                    ),
+                    kind: "browser".to_string(),
+                    title: title.unwrap_or(fallback),
+                    subtitle: url,
+                    source_path: path.to_string_lossy().into_owned(),
+                    parse_status: "parsed_browser_json".to_string(),
+                });
+            }
+
+            for child in map.values() {
+                collect_browser_json_records(backup_id, path, child, records);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn first_string(map: &serde_json::Map<String, serde_json::Value>, keys: &[&str]) -> Option<String> {
+    keys.iter().find_map(|key| {
+        map.get(*key)
+            .and_then(|value| value.as_str())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToString::to_string)
+    })
+}
+
+fn parse_browser_html(backup_id: &str, path: &Path) -> Result<Vec<StructuredRecord>, AdapterError> {
+    let raw = fs::read_to_string(path)?;
+    let mut records = Vec::new();
+    let mut rest = raw.as_str();
+    while let Some(anchor_start) = rest.find("<a") {
+        rest = &rest[anchor_start..];
+        let Some(tag_end) = rest.find('>') else {
+            break;
+        };
+        let tag = &rest[..tag_end];
+        let Some(close) = rest[tag_end + 1..].find("</a>") else {
+            break;
+        };
+        let title = strip_html_text(&rest[tag_end + 1..tag_end + 1 + close]);
+        let url = extract_href(tag);
+        if !title.is_empty() || url.is_some() {
+            let fallback = url.clone().unwrap_or_else(|| "Browser record".to_string());
+            records.push(StructuredRecord {
+                id: format!(
+                    "{backup_id}:browser:{}:{}",
+                    path.to_string_lossy(),
+                    records.len()
+                ),
+                kind: "browser".to_string(),
+                title: if title.is_empty() { fallback } else { title },
+                subtitle: url,
+                source_path: path.to_string_lossy().into_owned(),
+                parse_status: "parsed_browser_html".to_string(),
+            });
+        }
+        rest = &rest[tag_end + 1 + close + 4..];
+    }
+    Ok(records)
+}
+
+fn extract_href(tag: &str) -> Option<String> {
+    for marker in ["href=\"", "HREF=\""] {
+        if let Some(start) = tag.find(marker) {
+            let value_start = start + marker.len();
+            return tag[value_start..]
+                .find('"')
+                .map(|end| tag[value_start..value_start + end].to_string());
+        }
+    }
+    None
+}
+
+fn strip_html_text(value: &str) -> String {
+    let mut output = String::new();
+    let mut inside_tag = false;
+    for character in value.chars() {
+        match character {
+            '<' => inside_tag = true,
+            '>' => inside_tag = false,
+            _ if !inside_tag => output.push(character),
+            _ => {}
+        }
+    }
+    output.trim().to_string()
+}
+
+fn read_whatsapp_message_records(
+    backup_path: &Path,
+    backup_id: &str,
+) -> Result<Vec<StructuredRecord>, AdapterError> {
+    let mut records = Vec::new();
+    for folder_name in ["MESSAGE", "WhatsApp"] {
+        let folder = backup_path.join(folder_name);
+        if !folder.exists() {
+            continue;
+        }
+
+        for entry in walkdir::WalkDir::new(&folder) {
+            let entry = entry?;
+            if !entry.file_type().is_file() {
+                continue;
+            }
+            let path = entry.path();
+            let file_name = path
+                .file_name()
+                .and_then(|value| value.to_str())
+                .unwrap_or_default()
+                .to_ascii_lowercase();
+            if file_name.starts_with("msgstore")
+                || file_name.starts_with("wa.db")
+                || file_name.ends_with(".crypt12")
+                || file_name.ends_with(".crypt14")
+                || file_name.ends_with(".crypt15")
+            {
+                records.push(status_record(
+                    backup_id,
+                    "whatsapp_message",
+                    path,
+                    WHATSAPP_MESSAGE_STATUS,
+                ));
+            }
+        }
+    }
     Ok(records)
 }
 
@@ -248,7 +447,6 @@ fn read_status_records(
     for (kind, folder, status) in [
         ("contact", "CONTACT", "encrypted_or_proprietary_payload"),
         ("calllog", "CALLLOG", "binary_or_proprietary_payload"),
-        ("browser", "SBROWSER", "inventory_only_proprietary_payload"),
     ] {
         let path = backup_path.join(folder);
         if path.exists() {
@@ -467,5 +665,51 @@ mod tests {
         assert!(records.iter().any(|item| item.kind == "note"
             && item.parse_status == "parsed_text_note"
             && item.title == "My note"));
+    }
+
+    #[test]
+    fn parses_readable_browser_records() {
+        let temp = tempdir().unwrap();
+        fs::create_dir_all(temp.path().join("SBROWSER")).unwrap();
+        fs::write(
+            temp.path().join("SBROWSER/bookmarks.json"),
+            r#"{"children":[{"title":"Example","url":"https://example.com"}]}"#,
+        )
+        .unwrap();
+        fs::write(
+            temp.path().join("SBROWSER/history.html"),
+            r#"<html><body><a href="https://example.org">Example Org</a></body></html>"#,
+        )
+        .unwrap();
+
+        let records = read_structured_records(temp.path(), "backup").unwrap();
+        assert!(records.iter().any(|item| item.kind == "browser"
+            && item.title == "Example"
+            && item.subtitle.as_deref() == Some("https://example.com")
+            && item.parse_status == "parsed_browser_json"));
+        assert!(records.iter().any(|item| item.kind == "browser"
+            && item.title == "Example Org"
+            && item.subtitle.as_deref() == Some("https://example.org")
+            && item.parse_status == "parsed_browser_html"));
+        assert!(!records
+            .iter()
+            .any(|item| item.kind == "browser" && item.parse_status == BROWSER_STATUS));
+    }
+
+    #[test]
+    fn reports_encrypted_whatsapp_message_databases() {
+        let temp = tempdir().unwrap();
+        fs::create_dir_all(temp.path().join("MESSAGE/Databases")).unwrap();
+        fs::write(
+            temp.path().join("MESSAGE/Databases/msgstore.db.crypt14"),
+            b"encrypted",
+        )
+        .unwrap();
+
+        let records = read_structured_records(temp.path(), "backup").unwrap();
+        assert!(records
+            .iter()
+            .any(|item| item.kind == "whatsapp_message"
+                && item.parse_status == WHATSAPP_MESSAGE_STATUS));
     }
 }

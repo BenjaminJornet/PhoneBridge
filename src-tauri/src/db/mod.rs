@@ -479,7 +479,15 @@ fn category_from_relative_path(path: &str) -> String {
 fn source_from_relative_path(path: &str) -> String {
     let mut parts = path.split(std::path::MAIN_SEPARATOR);
     let _category = parts.next();
-    parts.next().unwrap_or("local").to_string()
+    let Some(source) = parts.next() else {
+        return "local".to_string();
+    };
+
+    if parts.next().is_none() {
+        return "local".to_string();
+    }
+
+    source.to_string()
 }
 
 #[cfg(test)]
@@ -520,6 +528,12 @@ mod tests {
         assert_eq!(files.len(), 1);
         assert_eq!(files[0].relative_path, "Photo/DCIM/image.jpg");
         assert_eq!(files[0].source, "DCIM");
+    }
+
+    #[test]
+    fn uses_local_source_for_files_at_category_root() {
+        assert_eq!(source_from_relative_path("Photo/image.jpg"), "local");
+        assert_eq!(source_from_relative_path("Photo/DCIM/image.jpg"), "DCIM");
     }
 
     #[test]
