@@ -88,23 +88,83 @@ fn normalize_key_file(raw: &[u8]) -> Result<Vec<u8>, AdapterError> {
             return decode_hex_key(trimmed);
         }
     }
-    if let Some(key) = find_crypt14_key(raw) {
-        return Ok(key.to_vec());
-    }
-    if raw.len() > 32 {
-        return Ok(raw[raw.len() - 32..].to_vec());
+    if let Some(key) = parse_java_serialized_byte_array(raw) {
+        if key.len() == 131 || key.len() == 32 {
+            return Ok(key);
+        }
+        return Err(AdapterError::Parse(format!(
+            "unsupported WhatsApp Java key byte[] length: {}",
+            key.len()
+        )));
     }
     Err(AdapterError::Parse(
         "unrecognized WhatsApp key file format".to_string(),
     ))
 }
 
-fn find_crypt14_key(raw: &[u8]) -> Option<&[u8]> {
-    raw.windows(131).find(|candidate| {
-        candidate.starts_with(&[0, 1])
-            && matches!(candidate.get(2), Some(1..=3))
-            && Sha256::digest(&candidate[35..51]).as_slice() == &candidate[51..83]
-    })
+fn parse_java_serialized_byte_array(raw: &[u8]) -> Option<Vec<u8>> {
+    if !raw.starts_with(&[0xac, 0xed, 0x00, 0x05]) {
+        return None;
+    }
+    let marker = b"[B";
+    let marker_pos = raw
+        .windows(marker.len())
+        .position(|window| window == marker)?;
+    let mut cursor = marker_pos + marker.len();
+    skip_java_class_descriptor_tail(raw, &mut cursor)?;
+    if raw.get(cursor) == Some(&0x70) {
+        cursor += 1;
+    }
+    let len = read_be_u32(raw, cursor)? as usize;
+    cursor += 4;
+    raw.get(cursor..cursor + len).map(ToOwned::to_owned)
+}
+
+fn skip_java_class_descriptor_tail(raw: &[u8], cursor: &mut usize) -> Option<()> {
+    *cursor += 9;
+    let field_count = read_be_u16(raw, *cursor)? as usize;
+    *cursor += 2;
+    for _ in 0..field_count {
+        let field_type = *raw.get(*cursor)?;
+        *cursor += 1;
+        let name_len = read_be_u16(raw, *cursor)? as usize;
+        *cursor += 2 + name_len;
+        if matches!(field_type, b'L' | b'[') {
+            match raw.get(*cursor)? {
+                0x74 => {
+                    *cursor += 1;
+                    let type_len = read_be_u16(raw, *cursor)? as usize;
+                    *cursor += 2 + type_len;
+                }
+                0x71 => *cursor += 5,
+                _ => return None,
+            }
+        }
+    }
+    loop {
+        match raw.get(*cursor)? {
+            0x78 => {
+                *cursor += 1;
+                return Some(());
+            }
+            0x77 => {
+                *cursor += 1;
+                let len = *raw.get(*cursor)? as usize;
+                *cursor += 1 + len;
+            }
+            _ => return None,
+        }
+    }
+}
+
+fn read_be_u16(raw: &[u8], offset: usize) -> Option<u16> {
+    let bytes = raw.get(offset..offset + 2)?;
+    Some(u16::from_be_bytes([bytes[0], bytes[1]]))
+}
+
+fn read_be_u32(raw: &[u8], offset: usize) -> Option<u32> {
+    let bytes = raw.get(offset..offset + 4)?;
+    Some(u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
 }
 
 fn decode_hex_key(hex: &str) -> Result<Vec<u8>, AdapterError> {
@@ -441,7 +501,22 @@ mod tests {
             derive_database_key(&key, KeyType::Crypt14).unwrap(),
             [7_u8; 32]
         );
-        assert!(find_crypt14_key(&key).is_some());
+        assert_eq!(normalize_key_file(&key).unwrap(), key);
+    }
+
+    #[test]
+    fn parses_java_serialized_byte_array_key_file() {
+        let mut key = vec![0_u8; 131];
+        key[0..3].copy_from_slice(&[0, 1, 1]);
+        let serialized = java_serialized_byte_array(&key);
+
+        assert_eq!(normalize_key_file(&serialized).unwrap(), key);
+    }
+
+    #[test]
+    fn rejects_ambiguous_key_files() {
+        let err = normalize_key_file(&[9_u8; 64]).unwrap_err().to_string();
+        assert!(err.contains("unrecognized WhatsApp key file format"));
     }
 
     #[test]
@@ -543,6 +618,21 @@ mod tests {
             value >>= 7;
         }
         out.push(value as u8);
+        out
+    }
+
+    fn java_serialized_byte_array(bytes: &[u8]) -> Vec<u8> {
+        let mut out = Vec::new();
+        out.extend_from_slice(&[0xac, 0xed, 0x00, 0x05]);
+        out.push(0x75);
+        out.push(0x72);
+        out.extend_from_slice(&2_u16.to_be_bytes());
+        out.extend_from_slice(b"[B");
+        out.extend_from_slice(&[0xac, 0xf3, 0x17, 0xf8, 0x06, 0x08, 0x54, 0xe0]);
+        out.extend_from_slice(&[0x02, 0x00, 0x00]);
+        out.extend_from_slice(&[0x78, 0x70]);
+        out.extend_from_slice(&(bytes.len() as u32).to_be_bytes());
+        out.extend_from_slice(bytes);
         out
     }
 }
