@@ -89,9 +89,44 @@ pub fn read_default_archive_inventory() -> Result<Vec<SmartSwitchArchiveInventor
             "CALLLOG",
             backup_path.join("CALLLOG").join("CALLLOG.zip"),
         )?);
+        inventories.extend(read_folder_inventory(
+            &source.id,
+            &source.label,
+            "CALENDER",
+            backup_path.join("CALENDER"),
+        )?);
     }
 
     Ok(inventories)
+}
+
+fn read_folder_inventory(
+    backup_id: &str,
+    backup_label: &str,
+    item_type: &str,
+    folder_path: PathBuf,
+) -> Result<Vec<SmartSwitchArchiveInventory>, AdapterError> {
+    if !folder_path.exists() {
+        return Ok(Vec::new());
+    }
+    let mut entry_count = 0;
+    for entry in walkdir::WalkDir::new(&folder_path) {
+        let entry = entry?;
+        if entry.file_type().is_file() {
+            entry_count += 1;
+        }
+    }
+    Ok(vec![SmartSwitchArchiveInventory {
+        backup_id: backup_id.to_string(),
+        backup_label: backup_label.to_string(),
+        item_type: item_type.to_string(),
+        archive_path: folder_path.to_string_lossy().into_owned(),
+        entry_count,
+        encrypted_entries: 0,
+        image_entries: 0,
+        blob_entries: 0,
+        parse_status: "inventory_only".to_string(),
+    }])
 }
 
 fn read_item_metrics(
@@ -221,5 +256,17 @@ mod tests {
     fn detects_binary_call_log_payload() {
         assert!(!looks_like_text_xml(&mut &[0, 159, 146, 150][..]));
         assert!(looks_like_text_xml(&mut &b"<?xml version=\"1.0\"?>"[..]));
+    }
+
+    #[test]
+    fn inventories_calendar_folder() {
+        let temp = tempdir().unwrap();
+        let calendar = temp.path().join("CALENDER");
+        fs::create_dir_all(&calendar).unwrap();
+        fs::write(calendar.join("event.vcs"), b"BEGIN:VCALENDAR").unwrap();
+
+        let inventory = read_folder_inventory("backup", "Backup", "CALENDER", calendar).unwrap();
+        assert_eq!(inventory[0].entry_count, 1);
+        assert_eq!(inventory[0].parse_status, "inventory_only");
     }
 }

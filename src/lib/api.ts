@@ -90,6 +90,7 @@ export function planConsolidation(config: ConsolidationConfig): Promise<Consolid
 
 export function runConsolidation(config: ConsolidationConfig): Promise<ConsolidationResult> {
   return invokeIfAvailable("run_consolidation", {
+    runId: "",
     backupId: "",
     plan: {
       sourcePath: config.sourcePath,

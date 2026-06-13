@@ -1,4 +1,5 @@
 use crate::adapters::{AdapterError, BackupSource, DeviceSummary};
+use crate::privacy::redact_identifier;
 use std::process::Command;
 use uuid::Uuid;
 
@@ -39,7 +40,7 @@ pub fn detect_devices() -> Result<Vec<BackupSource>, AdapterError> {
                 label: format!("{manufacturer} {model}"),
                 path: None,
                 device: Some(DeviceSummary {
-                    id: serial.to_string(),
+                    id: redact_identifier(serial),
                     model,
                     manufacturer,
                     android_version,

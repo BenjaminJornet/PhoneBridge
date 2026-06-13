@@ -10,7 +10,7 @@ use walkdir::WalkDir;
 const APP_DIR_NAME: &str = ".phonebridge";
 const DB_FILE_NAME: &str = "phonebridge.sqlite3";
 const MULTIMEDIA_CATEGORIES: [&str; 4] = ["Photo", "Video", "Music", "Documents"];
-const CURRENT_SCHEMA_VERSION: i64 = 2;
+const CURRENT_SCHEMA_VERSION: i64 = 3;
 
 #[derive(Debug, Error)]
 pub enum DbError {
@@ -71,6 +71,9 @@ pub fn initialize(connection: &Connection) -> Result<(), DbError> {
         }
         if version < 2 {
             migrate_to_v2(connection)?;
+        }
+        if version < 3 {
+            migrate_to_v3(connection)?;
         }
     }
 
@@ -150,6 +153,37 @@ fn migrate_to_v2(connection: &Connection) -> Result<(), DbError> {
         CREATE INDEX IF NOT EXISTS idx_occurrences_content ON occurrences(content_hash);
 
         PRAGMA user_version = 2;
+        ",
+    )?;
+
+    Ok(())
+}
+
+fn migrate_to_v3(connection: &Connection) -> Result<(), DbError> {
+    connection.execute_batch(
+        "
+        CREATE TABLE IF NOT EXISTS import_runs (
+          id TEXT PRIMARY KEY,
+          source_path TEXT NOT NULL,
+          destination_path TEXT NOT NULL,
+          status TEXT NOT NULL,
+          started_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          finished_at TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS import_run_entries (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          run_id TEXT NOT NULL REFERENCES import_runs(id) ON DELETE CASCADE,
+          original_path TEXT NOT NULL,
+          content_hash TEXT,
+          action TEXT NOT NULL,
+          size_bytes INTEGER NOT NULL,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_import_run_entries_run ON import_run_entries(run_id);
+
+        PRAGMA user_version = 3;
         ",
     )?;
 

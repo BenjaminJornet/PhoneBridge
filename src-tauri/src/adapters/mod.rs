@@ -2,6 +2,7 @@ use serde::Serialize;
 use thiserror::Error;
 
 pub mod adb_generic;
+pub mod folder;
 pub mod smartswitch;
 
 #[derive(Debug, Error)]
@@ -49,6 +50,7 @@ pub trait BackupAdapter {
 
 pub fn scan_default_sources() -> Result<Vec<BackupSource>, AdapterError> {
     let mut sources = Vec::new();
+    sources.extend(folder::FolderAdapter.scan()?);
     sources.extend(smartswitch::SmartSwitchAdapter.scan()?);
     Ok(sources)
 }

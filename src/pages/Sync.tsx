@@ -43,6 +43,7 @@ export default function Sync() {
   const [consolidationResult, setConsolidationResult] = useState<ConsolidationResult | null>(null);
   const [backupCoverage, setBackupCoverage] = useState<BackupCoverage[]>([]);
   const [progress, setProgress] = useState<{ processedFiles: number; totalFiles: number; currentPath: string } | null>(null);
+  const [syncProgress, setSyncProgress] = useState<{ copiedFiles: number; skippedFiles: number; currentPath: string } | null>(null);
   const [status, setStatus] = useState("Ready");
 
   useEffect(() => {
@@ -83,6 +84,21 @@ export default function Sync() {
         nextUnlisten();
       } else {
         unlisten = nextUnlisten;
+      }
+    });
+    listen<{ copiedFiles: number; skippedFiles: number; currentPath: string }>("smartswitch-sync-progress", (event) => {
+      if (!cancelled) {
+        setSyncProgress(event.payload);
+      }
+    }).then((nextUnlisten) => {
+      const previous = unlisten;
+      if (cancelled) {
+        nextUnlisten();
+      } else {
+        unlisten = () => {
+          previous?.();
+          nextUnlisten();
+        };
       }
     });
 
@@ -144,6 +160,7 @@ export default function Sync() {
 
     setStatus("Synchronizing SmartSwitch backup without deleting or overwriting files...");
     setSyncResult(null);
+    setSyncProgress(null);
     try {
       const result = await runSmartSwitchSync({
         sourcePath: selectedSourcePath,
@@ -151,6 +168,7 @@ export default function Sync() {
         categories: selectedCategories,
       });
       setSyncResult(result);
+      setSyncProgress(null);
       setStatus("SmartSwitch sync complete");
     } catch (cause) {
       setStatus(cause instanceof Error ? cause.message : String(cause));
@@ -274,6 +292,12 @@ export default function Sync() {
             {syncResult.errors.length > 0 && <small>{syncResult.errors.length} warning(s): {syncResult.errors[0]}</small>}
           </div>
         )}
+        {syncProgress && (
+          <div className="summaryBox">
+            <strong>{formatCount(syncProgress.copiedFiles)} copied · {formatCount(syncProgress.skippedFiles)} skipped</strong>
+            <span>{syncProgress.currentPath}</span>
+          </div>
+        )}
         {consolidationPlan && (
           <div className="summaryBox">
             <strong>
@@ -291,6 +315,7 @@ export default function Sync() {
               {formatCount(consolidationResult.copiedFiles)} stored · {formatCount(consolidationResult.occurrencesRecorded)} occurrences
             </strong>
             <span>Backup id: {consolidationResult.backupId}</span>
+            <small>Run id: {consolidationResult.runId}</small>
             {consolidationResult.errors.length > 0 && (
               <small>{consolidationResult.errors.length} warning(s): {consolidationResult.errors[0]}</small>
             )}

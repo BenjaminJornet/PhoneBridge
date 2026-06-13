@@ -68,12 +68,15 @@ pub async fn scan_smartswitch_categories(
 
 #[tauri::command]
 pub async fn run_smartswitch_sync(
+    window: tauri::Window,
     config: SmartSwitchSyncConfig,
 ) -> Result<SmartSwitchSyncResult, String> {
-    tauri::async_runtime::spawn_blocking(move || sync::execute_smartswitch_sync(config))
-        .await
-        .map_err(|err| err.to_string())?
-        .map_err(|err| err.to_string())
+    tauri::async_runtime::spawn_blocking(move || {
+        sync::execute_smartswitch_sync_with_window(config, window)
+    })
+    .await
+    .map_err(|err| err.to_string())?
+    .map_err(|err| err.to_string())
 }
 
 #[tauri::command]

@@ -62,6 +62,7 @@ pub struct ConsolidationResult {
     pub copied_bytes: u64,
     pub occurrences_recorded: u64,
     pub errors: Vec<String>,
+    pub run_id: String,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -161,12 +162,18 @@ fn execute_consolidation_with_connection(
     let destination_path = expand_home(&config.destination_path);
     validate_paths(&source_path, &destination_path, &config)?;
     fs::create_dir_all(&destination_path)?;
+    let _lock = ImportLock::acquire(&destination_path)?;
 
     let files = collect_source_files(&source_path)?;
     let total_files = files.len() as u64;
     let backup_id = Uuid::new_v5(
         &Uuid::NAMESPACE_URL,
         format!("{}:{}", config.adapter, source_path.display()).as_bytes(),
+    )
+    .to_string();
+    let run_id = Uuid::new_v5(
+        &Uuid::NAMESPACE_URL,
+        format!("run:{}:{}", backup_id, chrono_like_timestamp()).as_bytes(),
     )
     .to_string();
 
@@ -188,6 +195,10 @@ fn execute_consolidation_with_connection(
 
     db::initialize(connection)?;
     let transaction = connection.transaction()?;
+    transaction.execute(
+        "INSERT INTO import_runs (id, source_path, destination_path, status) VALUES (?1, ?2, ?3, 'running')",
+        params![run_id, source_path.to_string_lossy(), destination_path.to_string_lossy()],
+    )?;
     transaction.execute(
         "
         INSERT INTO backups (id, adapter, label, source_path, imported_at)
@@ -222,6 +233,7 @@ fn execute_consolidation_with_connection(
             plan.duplicate_files += 1;
             plan.duplicate_bytes += hashed.source.size_bytes;
             duplicate_files += 1;
+            insert_manifest_entry(&transaction, &run_id, &hashed, "duplicate")?;
         } else {
             plan.new_files += 1;
             plan.new_bytes += hashed.source.size_bytes;
@@ -229,6 +241,7 @@ fn execute_consolidation_with_connection(
             insert_content(&transaction, &hashed)?;
             copied_files += 1;
             copied_bytes += hashed.source.size_bytes;
+            insert_manifest_entry(&transaction, &run_id, &hashed, "copied")?;
         }
 
         match insert_occurrence(&transaction, &backup_id, &hashed) {
@@ -250,6 +263,10 @@ fn execute_consolidation_with_connection(
         }
     }
 
+    transaction.execute(
+        "UPDATE import_runs SET status = 'completed', finished_at = CURRENT_TIMESTAMP WHERE id = ?1",
+        params![run_id],
+    )?;
     transaction.commit()?;
 
     Ok(ConsolidationResult {
@@ -260,7 +277,37 @@ fn execute_consolidation_with_connection(
         copied_bytes,
         occurrences_recorded,
         errors,
+        run_id,
     })
+}
+
+fn insert_manifest_entry(
+    transaction: &rusqlite::Transaction<'_>,
+    run_id: &str,
+    file: &HashedFile,
+    action: &str,
+) -> Result<(), LibraryError> {
+    transaction.execute(
+        "
+        INSERT INTO import_run_entries (run_id, original_path, content_hash, action, size_bytes)
+        VALUES (?1, ?2, ?3, ?4, ?5)
+        ",
+        params![
+            run_id,
+            file.source.relative_path,
+            file.hash,
+            action,
+            file.source.size_bytes as i64,
+        ],
+    )?;
+    Ok(())
+}
+
+fn chrono_like_timestamp() -> String {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|value| value.as_nanos().to_string())
+        .unwrap_or_else(|_| "0".to_string())
 }
 
 pub fn list_backup_coverage() -> Result<Vec<BackupCoverage>, LibraryError> {
@@ -452,6 +499,36 @@ fn temporary_copy_path(target: &Path) -> PathBuf {
     target.with_file_name(format!(".{file_name}.phonebridge.tmp"))
 }
 
+struct ImportLock {
+    path: PathBuf,
+}
+
+impl ImportLock {
+    fn acquire(root: &Path) -> Result<Self, LibraryError> {
+        let path = root.join(".phonebridge-import.lock");
+        match fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+        {
+            Ok(_) => Ok(Self { path }),
+            Err(err) if err.kind() == io::ErrorKind::AlreadyExists => {
+                Err(LibraryError::InvalidDestination(format!(
+                    "import already running at {}",
+                    root.display()
+                )))
+            }
+            Err(err) => Err(LibraryError::Filesystem(err)),
+        }
+    }
+}
+
+impl Drop for ImportLock {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.path);
+    }
+}
+
 fn insert_content(
     transaction: &rusqlite::Transaction<'_>,
     file: &HashedFile,
@@ -542,6 +619,7 @@ mod tests {
         assert_eq!(result.copied_files, 2);
         assert_eq!(result.duplicate_files, 1);
         assert_eq!(result.occurrences_recorded, 3);
+        assert!(!result.run_id.is_empty());
 
         let plan = plan_consolidation_with_connection(&connection, config).unwrap();
         assert_eq!(plan.new_files, 0);

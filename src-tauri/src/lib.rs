@@ -4,6 +4,7 @@ mod commands;
 mod db;
 mod library;
 mod media;
+mod privacy;
 mod smartswitch;
 mod sync;
 

@@ -120,6 +120,7 @@ export interface ConsolidationPlan {
 }
 
 export interface ConsolidationResult {
+  runId: string;
   backupId: string;
   plan: ConsolidationPlan;
   copiedFiles: number;
