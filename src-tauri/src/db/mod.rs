@@ -10,7 +10,7 @@ use walkdir::WalkDir;
 const APP_DIR_NAME: &str = ".phonebridge";
 const DB_FILE_NAME: &str = "phonebridge.sqlite3";
 const MULTIMEDIA_CATEGORIES: [&str; 4] = ["Photo", "Video", "Music", "Documents"];
-const CURRENT_SCHEMA_VERSION: i64 = 3;
+const CURRENT_SCHEMA_VERSION: i64 = 4;
 
 #[derive(Debug, Error)]
 pub enum DbError {
@@ -74,6 +74,9 @@ pub fn initialize(connection: &Connection) -> Result<(), DbError> {
         }
         if version < 3 {
             migrate_to_v3(connection)?;
+        }
+        if version < 4 {
+            migrate_to_v4(connection)?;
         }
     }
 
@@ -186,6 +189,36 @@ fn migrate_to_v3(connection: &Connection) -> Result<(), DbError> {
         PRAGMA user_version = 3;
         ",
     )?;
+
+    Ok(())
+}
+
+fn migrate_to_v4(connection: &Connection) -> Result<(), DbError> {
+    connection
+        .execute_batch(
+            "
+        CREATE TABLE IF NOT EXISTS devices (
+          id TEXT PRIMARY KEY,
+          label TEXT NOT NULL,
+          manufacturer TEXT,
+          model TEXT,
+          android_version TEXT,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+
+        ALTER TABLE backups ADD COLUMN device_id TEXT REFERENCES devices(id);
+
+        PRAGMA user_version = 4;
+        ",
+        )
+        .or_else(|err| {
+            if err.to_string().contains("duplicate column name") {
+                connection.execute_batch("PRAGMA user_version = 4;")?;
+                Ok(())
+            } else {
+                Err(err)
+            }
+        })?;
 
     Ok(())
 }

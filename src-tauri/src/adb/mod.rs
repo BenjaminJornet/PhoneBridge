@@ -6,11 +6,11 @@ use uuid::Uuid;
 pub fn detect_devices() -> Result<Vec<BackupSource>, AdapterError> {
     let output = Command::new("adb").arg("devices").output();
     let Ok(output) = output else {
-        return Ok(Vec::new());
+        return Err(AdapterError::CommandUnavailable("adb".to_string()));
     };
 
     if !output.status.success() {
-        return Ok(Vec::new());
+        return Err(AdapterError::CommandFailed("adb devices".to_string()));
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);

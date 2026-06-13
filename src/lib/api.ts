@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   BackupSource,
   BackupCoverage,
+  AdapterDefinition,
   CategoryMetric,
   ConsolidationConfig,
   ConsolidationPlan,
@@ -13,6 +14,7 @@ import type {
   SmartSwitchItemMetric,
   SmartSwitchSyncConfig,
   SmartSwitchSyncResult,
+  StructuredRecord,
 } from "./types";
 
 function hasTauriRuntime(): boolean {
@@ -29,6 +31,10 @@ async function invokeIfAvailable<T>(command: string, fallback: T, args?: Record<
 
 export function scanBackupSources(): Promise<BackupSource[]> {
   return invokeIfAvailable("scan_backup_sources", []);
+}
+
+export function getAdapterRegistry(): Promise<AdapterDefinition[]> {
+  return invokeIfAvailable("get_adapter_registry", []);
 }
 
 export function getCategoryMetrics(): Promise<CategoryMetric[]> {
@@ -61,6 +67,10 @@ export function getSmartSwitchArchiveInventory(): Promise<SmartSwitchArchiveInve
   return invokeIfAvailable("get_smartswitch_archive_inventory", []);
 }
 
+export function getStructuredRecords(): Promise<StructuredRecord[]> {
+  return invokeIfAvailable("get_structured_records", []);
+}
+
 export function scanSmartSwitchCategories(sourcePath: string): Promise<SmartSwitchCategory[]> {
   return invokeIfAvailable("scan_smartswitch_categories", [], { sourcePath });
 }
@@ -79,6 +89,8 @@ export function planConsolidation(config: ConsolidationConfig): Promise<Consolid
   return invokeIfAvailable("plan_consolidation", {
     sourcePath: config.sourcePath,
     destinationPath: config.destinationPath,
+    deviceId: config.deviceId,
+    deviceLabel: config.deviceLabel,
     totalFiles: 0,
     totalBytes: 0,
     newFiles: 0,

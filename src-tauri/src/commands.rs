@@ -1,16 +1,23 @@
-use crate::adapters::{self, BackupSource, CategoryMetric};
+use crate::adapters::{self, AdapterDefinition, BackupSource, CategoryMetric};
 use crate::adb;
 use crate::db::{self, IndexSummary, IndexedFile};
 use crate::library::{
     self, BackupCoverage, ConsolidationConfig, ConsolidationPlan, ConsolidationResult,
 };
-use crate::smartswitch::{self, SmartSwitchArchiveInventory, SmartSwitchItemMetric};
+use crate::smartswitch::{
+    self, SmartSwitchArchiveInventory, SmartSwitchItemMetric, StructuredRecord,
+};
 use crate::sync::{self, SmartSwitchCategory, SmartSwitchSyncConfig, SmartSwitchSyncResult};
 use std::path::PathBuf;
 
 #[tauri::command]
 pub fn scan_backup_sources() -> Result<Vec<BackupSource>, String> {
     adapters::scan_default_sources().map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+pub fn get_adapter_registry() -> Vec<AdapterDefinition> {
+    adapters::adapter_registry()
 }
 
 #[tauri::command]
@@ -52,6 +59,11 @@ pub fn get_smartswitch_item_metrics() -> Result<Vec<SmartSwitchItemMetric>, Stri
 #[tauri::command]
 pub fn get_smartswitch_archive_inventory() -> Result<Vec<SmartSwitchArchiveInventory>, String> {
     smartswitch::read_default_archive_inventory().map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+pub fn get_structured_records() -> Result<Vec<StructuredRecord>, String> {
+    smartswitch::read_default_structured_records().map_err(|err| err.to_string())
 }
 
 #[tauri::command]

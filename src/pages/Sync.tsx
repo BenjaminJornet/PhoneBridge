@@ -179,8 +179,10 @@ export default function Sync() {
     return {
       sourcePath: selectedSourcePath,
       destinationPath,
-      adapter: "samsung-smartswitch",
+      adapter: sources.find((source) => source.path === selectedSourcePath)?.adapter ?? "generic-folder",
       label: sources.find((source) => source.path === selectedSourcePath)?.label ?? "SmartSwitch backup",
+      deviceId: sources.find((source) => source.path === selectedSourcePath)?.device?.id,
+      deviceLabel: sources.find((source) => source.path === selectedSourcePath)?.label,
     };
   }
 

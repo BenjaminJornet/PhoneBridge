@@ -2,7 +2,7 @@ use crate::adapters::smartswitch::SmartSwitchAdapter;
 use crate::adapters::{AdapterError, BackupAdapter};
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File};
-use std::io::Read;
+use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 use zip::ZipArchive;
 
@@ -28,6 +28,17 @@ pub struct SmartSwitchArchiveInventory {
     pub encrypted_entries: u64,
     pub image_entries: u64,
     pub blob_entries: u64,
+    pub parse_status: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StructuredRecord {
+    pub id: String,
+    pub kind: String,
+    pub title: String,
+    pub subtitle: Option<String>,
+    pub source_path: String,
     pub parse_status: String,
 }
 
@@ -98,6 +109,175 @@ pub fn read_default_archive_inventory() -> Result<Vec<SmartSwitchArchiveInventor
     }
 
     Ok(inventories)
+}
+
+pub fn read_default_structured_records() -> Result<Vec<StructuredRecord>, AdapterError> {
+    let sources = SmartSwitchAdapter.scan()?;
+    let mut records = Vec::new();
+
+    for source in sources {
+        let Some(path) = source.path.as_deref() else {
+            continue;
+        };
+        records.extend(read_structured_records(Path::new(path), &source.id)?);
+    }
+
+    Ok(records)
+}
+
+fn read_structured_records(
+    backup_path: &Path,
+    backup_id: &str,
+) -> Result<Vec<StructuredRecord>, AdapterError> {
+    let mut records = Vec::new();
+    records.extend(read_calendar_records(backup_path, backup_id)?);
+    records.extend(read_note_records(backup_path, backup_id)?);
+    records.extend(read_status_records(backup_path, backup_id)?);
+    Ok(records)
+}
+
+fn read_note_records(
+    backup_path: &Path,
+    backup_id: &str,
+) -> Result<Vec<StructuredRecord>, AdapterError> {
+    let folder = backup_path.join("SAMSUNGNOTE");
+    if !folder.exists() {
+        return Ok(Vec::new());
+    }
+
+    let mut records = Vec::new();
+    for entry in walkdir::WalkDir::new(&folder) {
+        let entry = entry?;
+        if !entry.file_type().is_file() {
+            continue;
+        }
+        let path = entry.path();
+        let extension = path
+            .extension()
+            .and_then(|value| value.to_str())
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+        if matches!(extension.as_str(), "txt" | "md" | "html") {
+            let raw = fs::read_to_string(path)?;
+            let title = raw
+                .lines()
+                .find(|line| !line.trim().is_empty())
+                .map(|line| line.trim().chars().take(80).collect::<String>())
+                .unwrap_or_else(|| "Samsung note".to_string());
+            records.push(StructuredRecord {
+                id: format!("{backup_id}:note:{}", path.to_string_lossy()),
+                kind: "note".to_string(),
+                title,
+                subtitle: Some(format!("{} bytes", raw.len())),
+                source_path: path.to_string_lossy().into_owned(),
+                parse_status: "parsed_text_note".to_string(),
+            });
+        } else {
+            records.push(status_record(
+                backup_id,
+                "note",
+                path,
+                "proprietary_note_payload",
+            ));
+        }
+    }
+
+    Ok(records)
+}
+
+fn read_calendar_records(
+    backup_path: &Path,
+    backup_id: &str,
+) -> Result<Vec<StructuredRecord>, AdapterError> {
+    let folder = backup_path.join("CALENDER");
+    if !folder.exists() {
+        return Ok(Vec::new());
+    }
+
+    let mut records = Vec::new();
+    for entry in walkdir::WalkDir::new(&folder) {
+        let entry = entry?;
+        if !entry.file_type().is_file() {
+            continue;
+        }
+        let path = entry.path();
+        let extension = path
+            .extension()
+            .and_then(|value| value.to_str())
+            .unwrap_or_default();
+        if !matches!(extension.to_ascii_lowercase().as_str(), "ics" | "vcs") {
+            records.push(status_record(
+                backup_id,
+                "calendar",
+                path,
+                "unsupported_calendar_file",
+            ));
+            continue;
+        }
+
+        let file = File::open(path)?;
+        let mut title = None;
+        let mut date = None;
+        for line in BufReader::new(file).lines() {
+            let line = line?;
+            if let Some(value) = line.strip_prefix("SUMMARY:") {
+                title = Some(value.to_string());
+            }
+            if let Some(value) = line.strip_prefix("DTSTART") {
+                date = value.split_once(':').map(|(_, right)| right.to_string());
+            }
+        }
+        records.push(StructuredRecord {
+            id: format!("{backup_id}:{}", path.to_string_lossy()),
+            kind: "calendar".to_string(),
+            title: title.unwrap_or_else(|| "Calendar event".to_string()),
+            subtitle: date,
+            source_path: path.to_string_lossy().into_owned(),
+            parse_status: "parsed_text_calendar".to_string(),
+        });
+    }
+
+    Ok(records)
+}
+
+fn read_status_records(
+    backup_path: &Path,
+    backup_id: &str,
+) -> Result<Vec<StructuredRecord>, AdapterError> {
+    let mut records = Vec::new();
+    for (kind, folder, status) in [
+        ("contact", "CONTACT", "encrypted_or_proprietary_payload"),
+        ("calllog", "CALLLOG", "binary_or_proprietary_payload"),
+        ("browser", "SBROWSER", "inventory_only_proprietary_payload"),
+    ] {
+        let path = backup_path.join(folder);
+        if path.exists() {
+            records.push(StructuredRecord {
+                id: format!("{backup_id}:{kind}:{}", path.to_string_lossy()),
+                kind: kind.to_string(),
+                title: folder.to_string(),
+                subtitle: None,
+                source_path: path.to_string_lossy().into_owned(),
+                parse_status: status.to_string(),
+            });
+        }
+    }
+    Ok(records)
+}
+
+fn status_record(backup_id: &str, kind: &str, path: &Path, status: &str) -> StructuredRecord {
+    StructuredRecord {
+        id: format!("{backup_id}:{kind}:{}", path.to_string_lossy()),
+        kind: kind.to_string(),
+        title: path
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or(kind)
+            .to_string(),
+        subtitle: None,
+        source_path: path.to_string_lossy().into_owned(),
+        parse_status: status.to_string(),
+    }
 }
 
 fn read_folder_inventory(
@@ -268,5 +448,24 @@ mod tests {
         let inventory = read_folder_inventory("backup", "Backup", "CALENDER", calendar).unwrap();
         assert_eq!(inventory[0].entry_count, 1);
         assert_eq!(inventory[0].parse_status, "inventory_only");
+    }
+
+    #[test]
+    fn parses_text_calendar_records_and_statuses_proprietary_folders() {
+        let temp = tempdir().unwrap();
+        fs::create_dir_all(temp.path().join("CALENDER")).unwrap();
+        fs::create_dir_all(temp.path().join("SAMSUNGNOTE")).unwrap();
+        fs::write(temp.path().join("SAMSUNGNOTE/note.txt"), b"My note\nBody").unwrap();
+        fs::write(
+            temp.path().join("CALENDER/event.ics"),
+            b"BEGIN:VCALENDAR\nSUMMARY:Lunch\nDTSTART:20260101T120000Z\nEND:VCALENDAR",
+        )
+        .unwrap();
+
+        let records = read_structured_records(temp.path(), "backup").unwrap();
+        assert!(records.iter().any(|item| item.title == "Lunch"));
+        assert!(records.iter().any(|item| item.kind == "note"
+            && item.parse_status == "parsed_text_note"
+            && item.title == "My note"));
     }
 }

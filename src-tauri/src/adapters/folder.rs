@@ -1,9 +1,17 @@
-use super::{AdapterError, BackupAdapter, BackupSource};
+use super::{AdapterDefinition, AdapterError, BackupAdapter, BackupSource};
 
 #[derive(Default)]
 pub struct FolderAdapter;
 
 impl BackupAdapter for FolderAdapter {
+    fn definition(&self) -> AdapterDefinition {
+        AdapterDefinition {
+            id: "generic-folder",
+            label: "Generic folder",
+            description: "Use any user-selected folder as a local backup source.",
+        }
+    }
+
     fn scan(&self) -> Result<Vec<BackupSource>, AdapterError> {
         Ok(Vec::new())
     }

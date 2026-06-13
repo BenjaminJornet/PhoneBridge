@@ -1,9 +1,18 @@
-use super::{AdapterError, BackupAdapter, BackupSource};
+use super::{AdapterDefinition, AdapterError, BackupAdapter, BackupSource};
 
 #[derive(Default)]
 pub struct SmartSwitchAdapter;
 
 impl BackupAdapter for SmartSwitchAdapter {
+    fn definition(&self) -> AdapterDefinition {
+        AdapterDefinition {
+            id: "samsung-smartswitch",
+            label: "Samsung SmartSwitch",
+            description:
+                "Import media and structured inventories from a user-selected SmartSwitch backup.",
+        }
+    }
+
     fn scan(&self) -> Result<Vec<BackupSource>, AdapterError> {
         Ok(Vec::new())
     }

@@ -37,6 +37,8 @@ pub struct ConsolidationConfig {
     pub destination_path: String,
     pub adapter: String,
     pub label: String,
+    pub device_id: Option<String>,
+    pub device_label: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -199,20 +201,35 @@ fn execute_consolidation_with_connection(
         "INSERT INTO import_runs (id, source_path, destination_path, status) VALUES (?1, ?2, ?3, 'running')",
         params![run_id, source_path.to_string_lossy(), destination_path.to_string_lossy()],
     )?;
+    if let Some(device_id) = config.device_id.as_deref() {
+        transaction.execute(
+            "
+            INSERT INTO devices (id, label, manufacturer, model, android_version)
+            VALUES (?1, ?2, NULL, NULL, NULL)
+            ON CONFLICT(id) DO UPDATE SET label = excluded.label
+            ",
+            params![
+                device_id,
+                config.device_label.as_deref().unwrap_or("Unknown device")
+            ],
+        )?;
+    }
     transaction.execute(
         "
-        INSERT INTO backups (id, adapter, label, source_path, imported_at)
-        VALUES (?1, ?2, ?3, ?4, CURRENT_TIMESTAMP)
+        INSERT INTO backups (id, adapter, label, source_path, device_id, imported_at)
+        VALUES (?1, ?2, ?3, ?4, ?5, CURRENT_TIMESTAMP)
         ON CONFLICT(id) DO UPDATE SET
           label = excluded.label,
           source_path = excluded.source_path,
+          device_id = excluded.device_id,
           imported_at = CURRENT_TIMESTAMP
         ",
         params![
             backup_id,
             config.adapter,
             config.label,
-            source_path.to_string_lossy()
+            source_path.to_string_lossy(),
+            config.device_id,
         ],
     )?;
 
@@ -608,6 +625,8 @@ mod tests {
             destination_path: library.to_string_lossy().into_owned(),
             adapter: "test".to_string(),
             label: "Test backup".to_string(),
+            device_id: Some("device-1".to_string()),
+            device_label: Some("Test Device".to_string()),
         };
 
         let mut connection = Connection::open_in_memory().unwrap();

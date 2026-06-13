@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import SectionHeader from "../components/SectionHeader";
-import { getCategoryMetrics, getSmartSwitchArchiveInventory, getSmartSwitchItemMetrics } from "../lib/api";
+import { getCategoryMetrics, getSmartSwitchArchiveInventory, getSmartSwitchItemMetrics, getStructuredRecords } from "../lib/api";
 import { formatBytes, formatCount } from "../lib/format";
-import type { CategoryMetric, SmartSwitchArchiveInventory, SmartSwitchItemMetric } from "../lib/types";
+import type { CategoryMetric, SmartSwitchArchiveInventory, SmartSwitchItemMetric, StructuredRecord } from "../lib/types";
 
 const categories = [
   { label: "Contacts", status: "Inventory available in Tauri; detailed payload is encrypted" },
@@ -18,21 +18,24 @@ export default function DataExplorer() {
   const [metrics, setMetrics] = useState<CategoryMetric[]>([]);
   const [smartSwitchMetrics, setSmartSwitchMetrics] = useState<SmartSwitchItemMetric[]>([]);
   const [archiveInventory, setArchiveInventory] = useState<SmartSwitchArchiveInventory[]>([]);
+  const [structuredRecords, setStructuredRecords] = useState<StructuredRecord[]>([]);
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([getCategoryMetrics(), getSmartSwitchItemMetrics(), getSmartSwitchArchiveInventory()])
-      .then(([nextMetrics, nextSmartSwitchMetrics, nextArchiveInventory]) => {
+    Promise.all([getCategoryMetrics(), getSmartSwitchItemMetrics(), getSmartSwitchArchiveInventory(), getStructuredRecords()])
+      .then(([nextMetrics, nextSmartSwitchMetrics, nextArchiveInventory, nextStructuredRecords]) => {
         if (!cancelled) {
           setMetrics(nextMetrics);
           setSmartSwitchMetrics(nextSmartSwitchMetrics);
           setArchiveInventory(nextArchiveInventory);
+          setStructuredRecords(nextStructuredRecords);
         }
       })
       .catch(() => {
         if (!cancelled) {
           setSmartSwitchMetrics([]);
           setArchiveInventory([]);
+          setStructuredRecords([]);
         }
       });
 
@@ -69,6 +72,14 @@ export default function DataExplorer() {
             <strong>{formatCount(item.entryCount)} archive entries</strong>
             <p>Status: {item.parseStatus}</p>
             <small>{formatCount(item.encryptedEntries)} encrypted · {formatCount(item.imageEntries)} images · {formatCount(item.blobEntries)} blobs</small>
+          </article>
+        ))}
+        {structuredRecords.map((record) => (
+          <article className="card dataCard" key={record.id}>
+            <h2>{record.kind}</h2>
+            <strong>{record.title}</strong>
+            {record.subtitle && <p>{record.subtitle}</p>}
+            <small>Status: {record.parseStatus}</small>
           </article>
         ))}
         {categories.map((category) => (

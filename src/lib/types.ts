@@ -1,6 +1,6 @@
 export type DataCategory =
-  | "photos"
-  | "videos"
+  | "photo"
+  | "video"
   | "music"
   | "documents"
   | "messages"
@@ -18,9 +18,17 @@ export interface DeviceSummary {
   connection: "adb" | "backup";
 }
 
+export type BackupAdapter = "adb-generic" | "generic-folder" | "google-takeout" | "samsung-smartswitch";
+
+export interface AdapterDefinition {
+  id: BackupAdapter;
+  label: string;
+  description: string;
+}
+
 export interface BackupSource {
   id: string;
-  adapter: "adb-generic" | "samsung-smartswitch";
+  adapter: BackupAdapter;
   label: string;
   path?: string;
   device?: DeviceSummary;
@@ -106,6 +114,17 @@ export interface ConsolidationConfig {
   destinationPath: string;
   adapter: string;
   label: string;
+  deviceId?: string;
+  deviceLabel?: string;
+}
+
+export interface StructuredRecord {
+  id: string;
+  kind: string;
+  title: string;
+  subtitle?: string;
+  sourcePath: string;
+  parseStatus: string;
 }
 
 export interface ConsolidationPlan {
