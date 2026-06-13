@@ -22,6 +22,7 @@ pub fn run() {
             commands::list_backup_coverage,
             commands::list_indexed_files,
             commands::plan_consolidation,
+            commands::pull_from_device,
             commands::run_consolidation,
             commands::run_smartswitch_sync,
             commands::scan_backup_sources,

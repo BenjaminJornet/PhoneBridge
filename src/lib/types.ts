@@ -109,6 +109,13 @@ export interface SmartSwitchSyncResult {
   errors: string[];
 }
 
+export interface AdbPullResult {
+  sourcePath: string;
+  pulledPaths: number;
+  skippedPaths: number;
+  errors: string[];
+}
+
 export interface ConsolidationConfig {
   sourcePath: string;
   destinationPath: string;

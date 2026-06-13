@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   BackupSource,
   BackupCoverage,
+  AdbPullResult,
   AdapterDefinition,
   CategoryMetric,
   ConsolidationConfig,
@@ -43,6 +44,15 @@ export function getCategoryMetrics(): Promise<CategoryMetric[]> {
 
 export function detectAdbDevices(): Promise<BackupSource[]> {
   return invokeIfAvailable("detect_adb_devices", []);
+}
+
+export function pullFromDevice(sourceId: string, destinationPath: string): Promise<AdbPullResult> {
+  return invokeIfAvailable("pull_from_device", {
+    sourcePath: destinationPath,
+    pulledPaths: 0,
+    skippedPaths: 0,
+    errors: [],
+  }, { sourceId, destinationPath });
 }
 
 export function indexMultimedia(sourcePath: string): Promise<IndexSummary> {

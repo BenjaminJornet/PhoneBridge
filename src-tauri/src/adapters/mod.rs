@@ -16,6 +16,8 @@ pub enum AdapterError {
     Filesystem(#[from] std::io::Error),
     #[error("json error: {0}")]
     Json(#[from] serde_json::Error),
+    #[error("parse error: {0}")]
+    Parse(String),
     #[error("walkdir error: {0}")]
     Walkdir(#[from] walkdir::Error),
 }
@@ -79,6 +81,7 @@ pub fn scan_default_sources() -> Result<Vec<BackupSource>, AdapterError> {
 
 fn registered_adapters() -> Vec<Box<dyn BackupAdapter>> {
     vec![
+        Box::new(adb_generic::AdbGenericAdapter),
         Box::new(folder::FolderAdapter),
         Box::new(smartswitch::SmartSwitchAdapter),
         Box::new(takeout::TakeoutAdapter),
@@ -105,6 +108,7 @@ mod tests {
     fn registry_exposes_core_adapters() {
         let ids: Vec<_> = adapter_registry().into_iter().map(|item| item.id).collect();
         assert!(ids.contains(&"generic-folder"));
+        assert!(ids.contains(&"adb-generic"));
         assert!(ids.contains(&"samsung-smartswitch"));
         assert!(ids.contains(&"google-takeout"));
     }

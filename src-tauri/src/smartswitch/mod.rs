@@ -1,10 +1,13 @@
 use crate::adapters::smartswitch::SmartSwitchAdapter;
 use crate::adapters::{AdapterError, BackupAdapter};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fs::{self, File};
-use std::io::{BufRead, BufReader, Read};
+use std::io::{BufRead, BufReader, Cursor, Read};
 use std::path::{Path, PathBuf};
 use zip::ZipArchive;
+
+mod crypto;
 
 const BROWSER_STATUS: &str = "inventory_only_proprietary_payload";
 const WHATSAPP_MESSAGE_STATUS: &str = "encrypted_whatsapp_message_database";
@@ -135,10 +138,158 @@ fn read_structured_records(
     let mut records = Vec::new();
     records.extend(read_calendar_records(backup_path, backup_id)?);
     records.extend(read_note_records(backup_path, backup_id)?);
+    records.extend(read_contact_records(backup_path, backup_id)?);
+    records.extend(read_calllog_records(backup_path, backup_id)?);
     records.extend(read_browser_records(backup_path, backup_id)?);
     records.extend(read_whatsapp_message_records(backup_path, backup_id)?);
-    records.extend(read_status_records(backup_path, backup_id)?);
+    records.extend(read_status_records(
+        backup_path,
+        backup_id,
+        records.iter().map(|record| record.kind.as_str()).collect(),
+    )?);
     Ok(records)
+}
+
+fn read_contact_records(
+    backup_path: &Path,
+    backup_id: &str,
+) -> Result<Vec<StructuredRecord>, AdapterError> {
+    let archive_path = backup_path.join("CONTACT").join("Contact.SPBM");
+    if !archive_path.exists() {
+        return Ok(Vec::new());
+    }
+
+    let mut archive = open_zip(&archive_path)?;
+    let mut records = Vec::new();
+    for index in 0..archive.len() {
+        let mut entry = archive.by_index(index).map_err(invalid_zip)?;
+        let name = entry.name().to_string();
+        if !name.to_ascii_lowercase().ends_with(".json.enc") {
+            continue;
+        }
+        let mut raw = Vec::new();
+        entry.read_to_end(&mut raw)?;
+        let decrypted = crypto::decrypt_iv_prefixed_payload(&raw)?;
+        let json = crypto::extract_json_region(&decrypted)?;
+        let parsed: serde_json::Value = serde_json::from_slice(json)?;
+        collect_contact_records(backup_id, &archive_path, &parsed, &mut records);
+    }
+
+    Ok(records)
+}
+
+fn collect_contact_records(
+    backup_id: &str,
+    archive_path: &Path,
+    value: &serde_json::Value,
+    records: &mut Vec<StructuredRecord>,
+) {
+    match value {
+        serde_json::Value::Array(items) => {
+            for item in items {
+                collect_contact_records(backup_id, archive_path, item, records);
+            }
+        }
+        serde_json::Value::Object(map) => {
+            let title = first_string(map, &["displayName", "name", "formattedName", "givenName"]);
+            if let Some(title) = title {
+                let subtitle = first_string(map, &["phoneNumber", "phone", "email", "number"]);
+                records.push(StructuredRecord {
+                    id: format!(
+                        "{backup_id}:contact:{}:{}",
+                        archive_path.to_string_lossy(),
+                        records.len()
+                    ),
+                    kind: "contact".to_string(),
+                    title,
+                    subtitle,
+                    source_path: archive_path.to_string_lossy().into_owned(),
+                    parse_status: "parsed_decrypted_contact".to_string(),
+                });
+            }
+            for child in map.values() {
+                collect_contact_records(backup_id, archive_path, child, records);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn read_calllog_records(
+    backup_path: &Path,
+    backup_id: &str,
+) -> Result<Vec<StructuredRecord>, AdapterError> {
+    let archive_path = backup_path.join("CALLLOG").join("CALLLOG.zip");
+    if !archive_path.exists() {
+        return Ok(Vec::new());
+    }
+
+    let mut archive = open_zip(&archive_path)?;
+    let mut records = Vec::new();
+    for index in 0..archive.len() {
+        let mut entry = archive.by_index(index).map_err(invalid_zip)?;
+        let name = entry.name().to_ascii_lowercase();
+        if !name.ends_with("call_log.exml") {
+            continue;
+        }
+        let mut raw = Vec::new();
+        entry.read_to_end(&mut raw)?;
+        let decrypted = crypto::decrypt_iv_prefixed_payload(&raw)?;
+        let xml = crypto::extract_xml_region(&decrypted, "CallLogs")?;
+        records.extend(parse_calllog_xml(backup_id, &archive_path, xml));
+    }
+    Ok(records)
+}
+
+fn parse_calllog_xml(backup_id: &str, archive_path: &Path, xml: &[u8]) -> Vec<StructuredRecord> {
+    let xml = String::from_utf8_lossy(xml);
+    let mut records = Vec::new();
+    let mut rest = xml.as_ref();
+    while let Some(start) = rest.find("<CallLog") {
+        rest = &rest[start..];
+        let Some(end) = rest.find('>') else {
+            break;
+        };
+        let tag = &rest[..end];
+        let attrs = xml_attrs(tag);
+        let title = attrs
+            .get("name")
+            .or_else(|| attrs.get("number"))
+            .or_else(|| attrs.get("phoneNumber"))
+            .cloned()
+            .unwrap_or_else(|| "Call log".to_string());
+        let subtitle = attrs
+            .get("date")
+            .or_else(|| attrs.get("type"))
+            .or_else(|| attrs.get("duration"))
+            .cloned();
+        records.push(StructuredRecord {
+            id: format!(
+                "{backup_id}:calllog:{}:{}",
+                archive_path.to_string_lossy(),
+                records.len()
+            ),
+            kind: "calllog".to_string(),
+            title,
+            subtitle,
+            source_path: archive_path.to_string_lossy().into_owned(),
+            parse_status: "parsed_decrypted_calllog".to_string(),
+        });
+        rest = &rest[end + 1..];
+    }
+    records
+}
+
+fn xml_attrs(tag: &str) -> HashMap<String, String> {
+    let mut attrs = HashMap::new();
+    for part in tag.split_whitespace().skip(1) {
+        let Some((key, raw_value)) = part.split_once('=') else {
+            continue;
+        };
+        let value = raw_value.trim_matches('/').trim_matches('"').to_string();
+        attrs.insert(key.to_string(), value);
+    }
+    attrs
 }
 
 fn read_browser_records(
@@ -371,6 +522,30 @@ fn read_note_records(
                 source_path: path.to_string_lossy().into_owned(),
                 parse_status: "parsed_text_note".to_string(),
             });
+        } else if matches!(extension.as_str(), "sdoc" | "sdocx") {
+            match parse_sdoc_text(path) {
+                Ok(Some(text)) => {
+                    let title = text
+                        .lines()
+                        .find(|line| !line.trim().is_empty())
+                        .map(|line| line.trim().chars().take(80).collect::<String>())
+                        .unwrap_or_else(|| "Samsung note".to_string());
+                    records.push(StructuredRecord {
+                        id: format!("{backup_id}:note:{}", path.to_string_lossy()),
+                        kind: "note".to_string(),
+                        title,
+                        subtitle: Some(format!("{} characters", text.chars().count())),
+                        source_path: path.to_string_lossy().into_owned(),
+                        parse_status: "parsed_sdocx_text".to_string(),
+                    });
+                }
+                Ok(None) | Err(_) => records.push(status_record(
+                    backup_id,
+                    "note",
+                    path,
+                    "proprietary_note_payload",
+                )),
+            }
         } else {
             records.push(status_record(
                 backup_id,
@@ -382,6 +557,75 @@ fn read_note_records(
     }
 
     Ok(records)
+}
+
+fn parse_sdoc_text(path: &Path) -> Result<Option<String>, AdapterError> {
+    let file = File::open(path)?;
+    let mut archive = ZipArchive::new(file).map_err(invalid_zip)?;
+    let mut note = None;
+    for index in 0..archive.len() {
+        let mut entry = archive.by_index(index).map_err(invalid_zip)?;
+        if entry.name().ends_with("note.note") {
+            let mut raw = Vec::new();
+            entry.read_to_end(&mut raw)?;
+            note = Some(raw);
+            break;
+        }
+    }
+    let Some(raw) = note else {
+        return Ok(None);
+    };
+    extract_sdoc_note_text(&raw).map(Some)
+}
+
+fn extract_sdoc_note_text(data: &[u8]) -> Result<String, AdapterError> {
+    let mut cursor = Cursor::new(data);
+    cursor.set_position(14);
+    let _format_version = read_u32(&mut cursor)?;
+    let note_id_len = read_u16(&mut cursor)? as u64;
+    cursor.set_position(cursor.position() + note_id_len * 2);
+    cursor.set_position(cursor.position() + 4 + 8 + 8 + 4 + 4 + 4 + 4 + 4);
+    let title_size = read_u32(&mut cursor)? as u64;
+    cursor.set_position(cursor.position() + title_size);
+    let body_size = read_u32(&mut cursor)? as usize;
+    let body_start = cursor.position() as usize;
+    let body_end = body_start.saturating_add(body_size);
+    if body_end > data.len() {
+        return Err(AdapterError::Parse(
+            "sdocx body exceeds note length".to_string(),
+        ));
+    }
+    let body = &data[body_start..body_end];
+    extract_text_common_text(body)
+}
+
+fn extract_text_common_text(body: &[u8]) -> Result<String, AdapterError> {
+    let object_base_size = read_u32_at(body, 0)? as usize;
+    let shape_base_size = read_u32_at(body, object_base_size)? as usize;
+    let shape_text_start = object_base_size + shape_base_size;
+    let shape_text_size = read_u32_at(body, shape_text_start)? as usize;
+    let shape_text_end = shape_text_start.saturating_add(shape_text_size);
+    if shape_text_end > body.len() || shape_text_start + 14 > body.len() {
+        return Err(AdapterError::Parse("invalid sdocx text record".to_string()));
+    }
+    let record_type = read_u16_at(body, shape_text_start + 4)?;
+    if record_type != 7 {
+        return Err(AdapterError::Parse(
+            "sdocx text record not found".to_string(),
+        ));
+    }
+    let own_data_offset = read_u32_at(body, shape_text_start + 6)? as usize;
+    let text_common_offset = shape_text_start + 4 + own_data_offset;
+    let _text_common_size = read_u32_at(body, text_common_offset)? as usize;
+    let text_len = read_u32_at(body, text_common_offset + 4)? as usize;
+    let text_start = text_common_offset + 8;
+    let text_end = text_start.saturating_add(text_len * 2);
+    if text_end > body.len() {
+        return Err(AdapterError::Parse(
+            "sdocx text exceeds body length".to_string(),
+        ));
+    }
+    utf16le_to_string(&body[text_start..text_end])
 }
 
 fn read_calendar_records(
@@ -442,6 +686,7 @@ fn read_calendar_records(
 fn read_status_records(
     backup_path: &Path,
     backup_id: &str,
+    parsed_kinds: Vec<&str>,
 ) -> Result<Vec<StructuredRecord>, AdapterError> {
     let mut records = Vec::new();
     for (kind, folder, status) in [
@@ -450,6 +695,9 @@ fn read_status_records(
     ] {
         let path = backup_path.join(folder);
         if path.exists() {
+            if parsed_kinds.contains(&kind) {
+                continue;
+            }
             records.push(StructuredRecord {
                 id: format!("{backup_id}:{kind}:{}", path.to_string_lossy()),
                 kind: kind.to_string(),
@@ -461,6 +709,52 @@ fn read_status_records(
         }
     }
     Ok(records)
+}
+
+fn open_zip(path: &Path) -> Result<ZipArchive<File>, AdapterError> {
+    let file = File::open(path)?;
+    ZipArchive::new(file).map_err(invalid_zip)
+}
+
+fn invalid_zip(err: zip::result::ZipError) -> AdapterError {
+    AdapterError::Filesystem(std::io::Error::new(std::io::ErrorKind::InvalidData, err))
+}
+
+fn read_u16<R: Read>(reader: &mut R) -> Result<u16, AdapterError> {
+    let mut buffer = [0_u8; 2];
+    reader.read_exact(&mut buffer)?;
+    Ok(u16::from_le_bytes(buffer))
+}
+
+fn read_u32<R: Read>(reader: &mut R) -> Result<u32, AdapterError> {
+    let mut buffer = [0_u8; 4];
+    reader.read_exact(&mut buffer)?;
+    Ok(u32::from_le_bytes(buffer))
+}
+
+fn read_u16_at(data: &[u8], offset: usize) -> Result<u16, AdapterError> {
+    let bytes = data
+        .get(offset..offset + 2)
+        .ok_or_else(|| AdapterError::Parse("u16 out of bounds".to_string()))?;
+    Ok(u16::from_le_bytes([bytes[0], bytes[1]]))
+}
+
+fn read_u32_at(data: &[u8], offset: usize) -> Result<u32, AdapterError> {
+    let bytes = data
+        .get(offset..offset + 4)
+        .ok_or_else(|| AdapterError::Parse("u32 out of bounds".to_string()))?;
+    Ok(u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
+}
+
+fn utf16le_to_string(data: &[u8]) -> Result<String, AdapterError> {
+    if data.len() % 2 != 0 {
+        return Err(AdapterError::Parse("odd utf16 length".to_string()));
+    }
+    let units: Vec<u16> = data
+        .chunks_exact(2)
+        .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
+        .collect();
+    String::from_utf16(&units).map_err(|err| AdapterError::Parse(err.to_string()))
 }
 
 fn status_record(backup_id: &str, kind: &str, path: &Path, status: &str) -> StructuredRecord {
@@ -611,7 +905,12 @@ fn looks_like_text_xml<R: Read>(reader: &mut R) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use aes::Aes128;
+    use cbc::cipher::{block_padding::NoPadding, BlockEncryptMut, KeyIvInit};
+    use std::io::Write;
     use tempfile::tempdir;
+    use zip::write::SimpleFileOptions;
+    use zip::ZipWriter;
 
     #[test]
     fn parses_req_items_info_metrics() {
@@ -711,5 +1010,125 @@ mod tests {
             .iter()
             .any(|item| item.kind == "whatsapp_message"
                 && item.parse_status == WHATSAPP_MESSAGE_STATUS));
+    }
+
+    #[test]
+    fn parses_decrypted_contact_and_calllog_records() {
+        let temp = tempdir().unwrap();
+        fs::create_dir_all(temp.path().join("CONTACT")).unwrap();
+        fs::create_dir_all(temp.path().join("CALLLOG")).unwrap();
+
+        write_zip(
+            &temp.path().join("CONTACT/Contact.SPBM"),
+            "CONTACT_JSON/contact.json.enc",
+            &encrypt_fixture(br#"[{"displayName":"Ada Lovelace","phoneNumber":"+100"}]"#),
+        );
+        write_zip(
+            &temp.path().join("CALLLOG/CALLLOG.zip"),
+            "call_log.exml",
+            &encrypt_fixture(br#"<?xml version="1.0"?><CallLogs><CallLog name="Ada" number="+100" date="2026" /></CallLogs>"#),
+        );
+
+        let records = read_structured_records(temp.path(), "backup").unwrap();
+        assert!(records.iter().any(|item| item.kind == "contact"
+            && item.title == "Ada Lovelace"
+            && item.parse_status == "parsed_decrypted_contact"));
+        assert!(records.iter().any(|item| item.kind == "calllog"
+            && item.title == "Ada"
+            && item.parse_status == "parsed_decrypted_calllog"));
+        assert!(!records.iter().any(|item| item.kind == "contact"
+            && item.parse_status == "encrypted_or_proprietary_payload"));
+        assert!(!records
+            .iter()
+            .any(|item| item.kind == "calllog"
+                && item.parse_status == "binary_or_proprietary_payload"));
+    }
+
+    #[test]
+    fn extracts_text_from_sdocx_note() {
+        let temp = tempdir().unwrap();
+        fs::create_dir_all(temp.path().join("SAMSUNGNOTE")).unwrap();
+        let note_path = temp.path().join("SAMSUNGNOTE/note.sdocx");
+        write_zip(
+            &note_path,
+            "note.note",
+            &sdoc_note_fixture("Typed note\nBody"),
+        );
+
+        let records = read_structured_records(temp.path(), "backup").unwrap();
+        assert!(records.iter().any(|item| item.kind == "note"
+            && item.title == "Typed note"
+            && item.parse_status == "parsed_sdocx_text"));
+    }
+
+    fn write_zip(path: &Path, name: &str, bytes: &[u8]) {
+        let file = File::create(path).unwrap();
+        let mut zip = ZipWriter::new(file);
+        zip.start_file(name, SimpleFileOptions::default()).unwrap();
+        zip.write_all(bytes).unwrap();
+        zip.finish().unwrap();
+    }
+
+    fn encrypt_fixture(plaintext: &[u8]) -> Vec<u8> {
+        let iv = [3_u8; 16];
+        let mut padded = plaintext.to_vec();
+        let aligned_len = padded.len().next_multiple_of(16);
+        padded.resize(aligned_len, 0);
+        let key = crypto::derive_dummy_key();
+        let mut buffer = padded.clone();
+        let ciphertext = cbc::Encryptor::<Aes128>::new_from_slices(&key, &iv)
+            .unwrap()
+            .encrypt_padded_mut::<NoPadding>(&mut buffer, padded.len())
+            .unwrap();
+
+        let mut raw = iv.to_vec();
+        raw.extend_from_slice(ciphertext);
+        raw
+    }
+
+    fn sdoc_note_fixture(text: &str) -> Vec<u8> {
+        let mut body = Vec::new();
+        append_u32(&mut body, 8);
+        body.extend_from_slice(&[0; 4]);
+        append_u32(&mut body, 8);
+        body.extend_from_slice(&[0; 4]);
+
+        let text_units: Vec<u16> = text.encode_utf16().collect();
+        let text_common_size = 8 + text_units.len() * 2;
+        let own_data_offset = 12_u32;
+        let shape_text_size = own_data_offset as usize + text_common_size;
+        append_u32(&mut body, shape_text_size as u32);
+        append_u16(&mut body, 7);
+        append_u32(&mut body, own_data_offset);
+        body.extend_from_slice(&[0; 6]);
+        append_u32(&mut body, text_common_size as u32);
+        append_u32(&mut body, text_units.len() as u32);
+        for unit in text_units {
+            append_u16(&mut body, unit);
+        }
+
+        let mut note = vec![0; 14];
+        append_u32(&mut note, 4000);
+        append_u16(&mut note, 0);
+        append_u32(&mut note, 1);
+        note.extend_from_slice(&0_u64.to_le_bytes());
+        note.extend_from_slice(&0_u64.to_le_bytes());
+        append_u32(&mut note, 100);
+        append_u32(&mut note, 100);
+        append_u32(&mut note, 0);
+        append_u32(&mut note, 0);
+        append_u32(&mut note, 4000);
+        append_u32(&mut note, 0);
+        append_u32(&mut note, body.len() as u32);
+        note.extend_from_slice(&body);
+        note
+    }
+
+    fn append_u16(bytes: &mut Vec<u8>, value: u16) {
+        bytes.extend_from_slice(&value.to_le_bytes());
+    }
+
+    fn append_u32(bytes: &mut Vec<u8>, value: u32) {
+        bytes.extend_from_slice(&value.to_le_bytes());
     }
 }
