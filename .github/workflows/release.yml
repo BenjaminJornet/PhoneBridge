@@ -58,10 +58,19 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: PhoneBridge ${{ github.ref_name }}
           releaseBody: |
-            Download the installer for your platform below.
+            PhoneBridge v0.0.1-alpha is the first public alpha release.
+
+            This build focuses on local Android backup recovery and exploration:
+            - Index local folders and Android backup exports.
+            - Deduplicate files by content while preserving provenance.
+            - Explore photos, videos, music, documents, structured records, apps, and selected SmartSwitch/WhatsApp data locally.
+            - Pull media from Android devices over ADB with explicit user action.
+            - Keep all data on your machine with no cloud sync or analytics.
+
+            Download the installer for your platform below. This is an alpha release, so please keep an original backup of your data and report issues on GitHub.
 
             macOS users may need to remove the quarantine attribute after downloading:
             `xattr -cr /Applications/PhoneBridge.app`
-          releaseDraft: true
+          releaseDraft: false
           prerelease: true
           args: ${{ matrix.args }}
