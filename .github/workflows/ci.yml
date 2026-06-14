@@ -13,7 +13,7 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Install Tauri Linux dependencies
         run: |
           sudo apt-get update
@@ -27,7 +27,7 @@ jobs:
             libwebkit2gtk-4.1-dev \
             libxdo-dev \
             wget
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
@@ -48,5 +48,7 @@ jobs:
       - run: cargo test --manifest-path src-tauri/Cargo.toml
       - name: Install cargo-audit
         run: cargo install cargo-audit --locked
-      - run: cargo audit --manifest-path src-tauri/Cargo.toml
+      - name: Audit Rust dependencies
+        working-directory: src-tauri
+        run: cargo audit
       - run: npm run tauri -- build
