@@ -27,7 +27,7 @@ sha2 = "0.10"
 tauri = { version = "=2.11.2", features = ["protocol-asset"] }
 tauri-plugin-dialog = "2.4"
 thiserror = "2.0"
-time = "=0.3.36"
+time = "0.3.47"
 walkdir = "2.5"
 zip = { version = "2.2", default-features = false, features = ["deflate"] }
 
