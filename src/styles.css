@@ -15,12 +15,73 @@
   --warning: #f59e0b;
   --danger: #ef4444;
   --border: rgba(27, 31, 59, 0.1);
+  --border-soft: rgba(15, 23, 42, 0.08);
+  --border-pill: rgba(15, 23, 42, 0.12);
+  --border-input: rgba(15, 23, 42, 0.16);
   --shadow: 0 20px 60px rgba(27, 31, 59, 0.1);
   --brand-gradient: linear-gradient(135deg, #6366f1 0%, #22d3ee 100%);
+  --surface-glass: rgba(255, 255, 255, 0.88);
+  --surface-alt: #f8fafc;
+  --surface-muted: linear-gradient(135deg, rgba(248, 250, 252, 0.94), rgba(238, 242, 255, 0.8));
+  --body-glow-1: rgba(99, 102, 241, 0.14);
+  --body-glow-2: rgba(34, 211, 238, 0.16);
+  --content-line: linear-gradient(90deg, rgba(99, 102, 241, 0.2), rgba(34, 211, 238, 0));
+  --nav-text: #cbd5e1;
+  --nav-active-bg: rgba(255, 255, 255, 0.12);
+  --on-dark: #ffffff;
+  --text-label: #9aa5b1;
+  --text-description: #526071;
+  --text-secondary: #64748b;
+  --text-overlay: #334155;
+  --chip-bg: #172033;
+  --chip-fg: #ffffff;
+  --media-placeholder: linear-gradient(135deg, #cbd5e1, #f8fafc 52%, #94a3b8);
+  --media-label-bg: rgba(248, 250, 252, 0.82);
+  --error: #b42318;
+  --accent-violet-700: #7c3aed;
 
   color: var(--ink);
   background: var(--bg);
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --ink: #f8fafc;
+  --ink-soft: #cbd5e1;
+  --muted: #94a3b8;
+  --bg: #0b1020;
+  --surface: #111827;
+  --sidebar-1: #020617;
+  --sidebar-2: #1e1b4b;
+  --primary: #818cf8;
+  --primary-700: #6366f1;
+  --accent-cyan: #67e8f9;
+  --accent-violet: #c084fc;
+  --border: rgba(226, 232, 240, 0.14);
+  --border-soft: rgba(226, 232, 240, 0.1);
+  --border-pill: rgba(226, 232, 240, 0.16);
+  --border-input: rgba(226, 232, 240, 0.22);
+  --shadow: 0 24px 70px rgba(0, 0, 0, 0.36);
+  --surface-glass: rgba(15, 23, 42, 0.82);
+  --surface-alt: #111827;
+  --surface-muted: linear-gradient(135deg, rgba(15, 23, 42, 0.92), rgba(30, 27, 75, 0.74));
+  --body-glow-1: rgba(99, 102, 241, 0.22);
+  --body-glow-2: rgba(34, 211, 238, 0.12);
+  --content-line: linear-gradient(90deg, rgba(129, 140, 248, 0.32), rgba(34, 211, 238, 0));
+  --nav-text: #cbd5e1;
+  --nav-active-bg: rgba(255, 255, 255, 0.14);
+  --on-dark: #ffffff;
+  --text-label: #a5b4fc;
+  --text-description: #cbd5e1;
+  --text-secondary: #94a3b8;
+  --text-overlay: #e2e8f0;
+  --chip-bg: #312e81;
+  --chip-fg: #ffffff;
+  --media-placeholder: linear-gradient(135deg, #1e293b, #312e81 52%, #0f172a);
+  --media-label-bg: rgba(15, 23, 42, 0.78);
+  --error: #fca5a5;
+  --accent-violet-700: #a78bfa;
 }
 
 * {
@@ -29,8 +90,8 @@
 
 body {
   background:
-    radial-gradient(circle at top left, rgba(99, 102, 241, 0.14), transparent 34rem),
-    radial-gradient(circle at 85% 12%, rgba(34, 211, 238, 0.16), transparent 28rem),
+    radial-gradient(circle at top left, var(--body-glow-1), transparent 34rem),
+    radial-gradient(circle at 85% 12%, var(--body-glow-2), transparent 28rem),
     var(--bg);
   margin: 0;
 }
@@ -47,7 +108,7 @@ button {
 
 .sidebar {
   background: linear-gradient(180deg, var(--sidebar-1) 0%, var(--sidebar-2) 100%);
-  color: #f8fafc;
+  color: var(--surface-alt);
   padding: 28px;
 }
 
@@ -62,7 +123,7 @@ button {
 .sectionHeader span,
 .statCard span,
 .statCard small {
-  color: #9aa5b1;
+  color: var(--text-label);
   display: block;
 }
 
@@ -70,7 +131,7 @@ button {
   align-items: center;
   background: var(--brand-gradient);
   border-radius: 16px;
-  color: #ffffff;
+  color: var(--on-dark);
   display: inline-flex;
   font-weight: 800;
   height: 52px;
@@ -82,7 +143,7 @@ button {
   background: transparent;
   border: 0;
   border-radius: 12px;
-  color: #cbd5e1;
+  color: var(--nav-text);
   cursor: pointer;
   display: block;
   margin-bottom: 8px;
@@ -93,8 +154,19 @@ button {
 
 .navItem.active,
 .navItem:hover {
-  background: rgba(255, 255, 255, 0.12);
-  color: #ffffff;
+  background: var(--nav-active-bg);
+  color: var(--on-dark);
+}
+
+.themeToggle {
+  background: var(--nav-active-bg);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+  color: var(--on-dark);
+  cursor: pointer;
+  margin-top: 24px;
+  padding: 10px 14px;
+  width: 100%;
 }
 
 .content {
@@ -102,7 +174,7 @@ button {
 }
 
 .content::before {
-  background: linear-gradient(90deg, rgba(99, 102, 241, 0.2), rgba(34, 211, 238, 0));
+  background: var(--content-line);
   content: "";
   display: block;
   height: 1px;
@@ -122,7 +194,7 @@ button {
 }
 
 .sectionHeader p {
-  color: #526071;
+  color: var(--text-description);
   font-size: 1.08rem;
   line-height: 1.7;
 }
@@ -135,7 +207,7 @@ button {
 }
 
 .card {
-  background: rgba(255, 255, 255, 0.88);
+  background: var(--surface-glass);
   backdrop-filter: blur(14px);
   border: 1px solid var(--border);
   border-radius: 24px;
@@ -159,7 +231,7 @@ button {
 
 .step {
   align-items: center;
-  border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+  border-bottom: 1px solid var(--border-soft);
   display: flex;
   gap: 16px;
   padding: 14px 0;
@@ -171,9 +243,9 @@ button {
 
 .step span {
   align-items: center;
-  background: #172033;
+  background: var(--chip-bg);
   border-radius: 999px;
-  color: #ffffff;
+  color: var(--chip-fg);
   display: inline-flex;
   height: 34px;
   justify-content: center;
@@ -188,20 +260,20 @@ button {
 }
 
 .pill {
-  background: #ffffff;
-  border: 1px solid rgba(15, 23, 42, 0.12);
+  background: var(--surface);
+  border: 1px solid var(--border-pill);
   border-radius: 999px;
   cursor: pointer;
   padding: 10px 16px;
 }
 
 .activePill {
-  background: #172033;
-  color: #ffffff;
+  background: var(--chip-bg);
+  color: var(--chip-fg);
 }
 
 .mutedText {
-  color: #64748b;
+  color: var(--text-secondary);
 }
 
 .mediaGrid {
@@ -213,7 +285,7 @@ button {
 .mediaTile {
   position: relative;
   aspect-ratio: 1;
-  background: linear-gradient(135deg, #cbd5e1, #f8fafc 52%, #94a3b8);
+  background: var(--media-placeholder);
   border-radius: 20px;
   display: flex;
   flex-direction: column;
@@ -234,7 +306,7 @@ button {
 .mediaTile strong,
 .mediaTile span,
 .mediaTile small {
-  background: rgba(248, 250, 252, 0.82);
+  background: var(--media-label-bg);
   border-radius: 8px;
   padding: 2px 6px;
   position: relative;
@@ -245,7 +317,7 @@ button {
 
 .mediaTile span,
 .mediaTile small {
-  color: #334155;
+  color: var(--text-overlay);
 }
 
 .dataGrid {
@@ -257,11 +329,11 @@ button {
 }
 
 .dataCard small {
-  color: #64748b;
+  color: var(--text-secondary);
 }
 
 .errorText {
-  color: #b42318;
+  color: var(--error);
 }
 
 .syncActions {
@@ -276,19 +348,19 @@ button {
   background: linear-gradient(135deg, var(--primary), var(--accent-violet));
   border: 0;
   border-radius: 14px;
-  color: #ffffff;
+  color: var(--on-dark);
   cursor: pointer;
   padding: 12px 18px;
 }
 
 .primaryButton:hover {
-  background: linear-gradient(135deg, var(--primary-700), #7c3aed);
+  background: linear-gradient(135deg, var(--primary-700), var(--accent-violet-700));
 }
 
 .summaryBox,
 .sourceRow {
-  background: linear-gradient(135deg, rgba(248, 250, 252, 0.94), rgba(238, 242, 255, 0.8));
-  border: 1px solid rgba(15, 23, 42, 0.08);
+  background: var(--surface-muted);
+  border: 1px solid var(--border-soft);
   border-radius: 16px;
   display: grid;
   gap: 6px;
@@ -324,7 +396,9 @@ button.sourceRow:disabled {
 }
 
 .pathField input {
-  border: 1px solid rgba(15, 23, 42, 0.16);
+  background: var(--surface);
+  border: 1px solid var(--border-input);
+  color: var(--ink);
   border-radius: 14px;
   font: inherit;
   padding: 12px 14px;
@@ -340,8 +414,8 @@ button.sourceRow:disabled {
 
 .categoryChoice {
   align-items: flex-start;
-  background: #f8fafc;
-  border: 1px solid rgba(15, 23, 42, 0.08);
+  background: var(--surface-alt);
+  border: 1px solid var(--border-soft);
   border-radius: 16px;
   display: flex;
   gap: 12px;
@@ -354,14 +428,55 @@ button.sourceRow:disabled {
 }
 
 .categoryChoice small {
-  color: #64748b;
+  color: var(--text-secondary);
 }
 
 .sourceRow span,
 .sourceRow small,
 .summaryBox span,
 .summaryBox small {
-  color: #64748b;
+  color: var(--text-secondary);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --ink: #f8fafc;
+    --ink-soft: #cbd5e1;
+    --muted: #94a3b8;
+    --bg: #0b1020;
+    --surface: #111827;
+    --sidebar-1: #020617;
+    --sidebar-2: #1e1b4b;
+    --primary: #818cf8;
+    --primary-700: #6366f1;
+    --accent-cyan: #67e8f9;
+    --accent-violet: #c084fc;
+    --border: rgba(226, 232, 240, 0.14);
+    --border-soft: rgba(226, 232, 240, 0.1);
+    --border-pill: rgba(226, 232, 240, 0.16);
+    --border-input: rgba(226, 232, 240, 0.22);
+    --shadow: 0 24px 70px rgba(0, 0, 0, 0.36);
+    --surface-glass: rgba(15, 23, 42, 0.82);
+    --surface-alt: #111827;
+    --surface-muted: linear-gradient(135deg, rgba(15, 23, 42, 0.92), rgba(30, 27, 75, 0.74));
+    --body-glow-1: rgba(99, 102, 241, 0.22);
+    --body-glow-2: rgba(34, 211, 238, 0.12);
+    --content-line: linear-gradient(90deg, rgba(129, 140, 248, 0.32), rgba(34, 211, 238, 0));
+    --nav-text: #cbd5e1;
+    --nav-active-bg: rgba(255, 255, 255, 0.14);
+    --on-dark: #ffffff;
+    --text-label: #a5b4fc;
+    --text-description: #cbd5e1;
+    --text-secondary: #94a3b8;
+    --text-overlay: #e2e8f0;
+    --chip-bg: #312e81;
+    --chip-fg: #ffffff;
+    --media-placeholder: linear-gradient(135deg, #1e293b, #312e81 52%, #0f172a);
+    --media-label-bg: rgba(15, 23, 42, 0.78);
+    --error: #fca5a5;
+    --accent-violet-700: #a78bfa;
+  }
 }
 
 @media (max-width: 900px) {

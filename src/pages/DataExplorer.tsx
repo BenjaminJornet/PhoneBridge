@@ -6,13 +6,13 @@ import { formatBytes, formatCount } from "../lib/format";
 import type { CategoryMetric, SmartSwitchArchiveInventory, SmartSwitchItemMetric, StructuredRecord, WhatsAppDecryptResult } from "../lib/types";
 
 const categories = [
-  { label: "Contacts", status: "Inventory available in Tauri; detailed payload is encrypted" },
-  { label: "Messages", status: "SmartSwitch parser planned" },
-  { label: "Call log", status: "Inventory available in Tauri; detailed payload is binary/proprietary" },
-  { label: "Calendar", status: "SmartSwitch parser planned" },
-  { label: "Samsung Notes", status: "SmartSwitch parser planned" },
-  { label: "Apps/APKs", status: "SmartSwitch parser planned" },
-  { label: "Browser data", status: "SmartSwitch parser planned" },
+  { label: "Contacts", status: "SmartSwitch encrypted contacts parse into local structured records" },
+  { label: "Messages", status: "WhatsApp crypt14/15 decrypt works locally with user-provided key material" },
+  { label: "Call log", status: "SmartSwitch encrypted call logs parse into local structured records" },
+  { label: "Calendar", status: "ICS/VCS calendar exports parse into structured records" },
+  { label: "Samsung Notes", status: "Text notes and typed .sdocx content parse locally" },
+  { label: "Apps/APKs", status: "APK folders are inventoried without executing packages" },
+  { label: "Browser data", status: "Readable SBROWSER JSON/HTML exports parse into records" },
 ];
 
 export default function DataExplorer() {

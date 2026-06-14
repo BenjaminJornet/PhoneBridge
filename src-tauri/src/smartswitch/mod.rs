@@ -112,6 +112,12 @@ pub fn read_default_archive_inventory() -> Result<Vec<SmartSwitchArchiveInventor
             "CALENDER",
             backup_path.join("CALENDER"),
         )?);
+        inventories.extend(read_folder_inventory(
+            &source.id,
+            &source.label,
+            "APK",
+            backup_path.join("APK"),
+        )?);
     }
 
     Ok(inventories)
@@ -141,6 +147,7 @@ fn read_structured_records(
     records.extend(read_contact_records(backup_path, backup_id)?);
     records.extend(read_calllog_records(backup_path, backup_id)?);
     records.extend(read_browser_records(backup_path, backup_id)?);
+    records.extend(read_app_records(backup_path, backup_id)?);
     records.extend(read_whatsapp_message_records(backup_path, backup_id)?);
     records.extend(read_status_records(
         backup_path,
@@ -325,6 +332,56 @@ fn read_browser_records(
         records.push(status_record(backup_id, "browser", &folder, BROWSER_STATUS));
     }
 
+    Ok(records)
+}
+
+fn read_app_records(
+    backup_path: &Path,
+    backup_id: &str,
+) -> Result<Vec<StructuredRecord>, AdapterError> {
+    let mut records = Vec::new();
+    for (folder_name, status) in [
+        ("APK", "inventory_apk_payload"),
+        ("GALAXYSTORE", "inventory_app_store_payload"),
+        ("DISABLEDAPPS", "inventory_disabled_apps_payload"),
+    ] {
+        let folder = backup_path.join(folder_name);
+        if !folder.exists() {
+            continue;
+        }
+        let mut found = false;
+        for entry in walkdir::WalkDir::new(&folder) {
+            let entry = entry?;
+            if !entry.file_type().is_file() {
+                continue;
+            }
+            let path = entry.path();
+            let extension = path
+                .extension()
+                .and_then(|value| value.to_str())
+                .unwrap_or_default()
+                .to_ascii_lowercase();
+            if extension == "apk" {
+                found = true;
+                let size = entry.metadata()?.len();
+                records.push(StructuredRecord {
+                    id: format!("{backup_id}:app:{}", path.to_string_lossy()),
+                    kind: "app".to_string(),
+                    title: path
+                        .file_stem()
+                        .and_then(|value| value.to_str())
+                        .unwrap_or("Android app")
+                        .to_string(),
+                    subtitle: Some(format!("{size} bytes")),
+                    source_path: path.to_string_lossy().into_owned(),
+                    parse_status: "parsed_apk_inventory".to_string(),
+                });
+            }
+        }
+        if !found {
+            records.push(status_record(backup_id, "app", &folder, status));
+        }
+    }
     Ok(records)
 }
 
@@ -755,6 +812,7 @@ fn read_status_records(
     for (kind, folder, status) in [
         ("contact", "CONTACT", "encrypted_or_proprietary_payload"),
         ("calllog", "CALLLOG", "binary_or_proprietary_payload"),
+        ("app", "APK", "binary_apk_payload"),
     ] {
         let path = backup_path.join(folder);
         if path.exists() {
@@ -1073,6 +1131,22 @@ mod tests {
             .iter()
             .any(|item| item.kind == "whatsapp_message"
                 && item.parse_status == WHATSAPP_MESSAGE_STATUS));
+    }
+
+    #[test]
+    fn inventories_apk_and_app_status_folders() {
+        let temp = tempdir().unwrap();
+        fs::create_dir_all(temp.path().join("APK/apps")).unwrap();
+        fs::create_dir_all(temp.path().join("DISABLEDAPPS")).unwrap();
+        fs::write(temp.path().join("APK/apps/example.apk"), b"apk").unwrap();
+
+        let records = read_structured_records(temp.path(), "backup").unwrap();
+        assert!(records.iter().any(|item| item.kind == "app"
+            && item.title == "example"
+            && item.parse_status == "parsed_apk_inventory"));
+        assert!(records.iter().any(|item| item.kind == "app"
+            && item.title == "DISABLEDAPPS"
+            && item.parse_status == "inventory_disabled_apps_payload"));
     }
 
     #[test]
