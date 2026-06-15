@@ -267,6 +267,12 @@ button {
   padding: 10px 16px;
 }
 
+.pill:disabled,
+.primaryButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .activePill {
   background: var(--chip-bg);
   color: var(--chip-fg);
@@ -357,6 +363,10 @@ button {
   background: linear-gradient(135deg, var(--primary-700), var(--accent-violet-700));
 }
 
+.primaryButton:disabled:hover {
+  background: linear-gradient(135deg, var(--primary), var(--accent-violet));
+}
+
 .summaryBox,
 .sourceRow {
   background: var(--surface-muted);
@@ -371,6 +381,162 @@ button {
 .sourceList {
   display: grid;
   gap: 12px;
+}
+
+.quickStartGrid,
+.sourceTypeGrid,
+.wizardSteps {
+  display: grid;
+  gap: 14px;
+  margin-bottom: 22px;
+}
+
+.quickStartGrid,
+.sourceTypeGrid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.sourceTypeGrid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.quickStartCard span,
+.eyebrowText {
+  color: var(--text-label);
+  display: block;
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.quickStartCard h2,
+.sourceTypeCard strong {
+  margin-top: 0;
+}
+
+.sourceTypeCard {
+  background: var(--surface-muted);
+  border: 1px solid var(--border-soft);
+  border-radius: 18px;
+  color: var(--ink);
+  cursor: pointer;
+  display: grid;
+  gap: 8px;
+  padding: 18px;
+  text-align: left;
+}
+
+.sourceTypeCard span,
+.sourceTypeCard small {
+  color: var(--text-secondary);
+}
+
+.wizardSteps {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.compactWizard {
+  grid-template-columns: 1fr;
+}
+
+.activeStep {
+  border-color: var(--primary);
+}
+
+.activeStep span {
+  background: var(--brand-gradient);
+}
+
+.compactActions {
+  margin-bottom: 0;
+}
+
+.advancedPanel {
+  border-top: 1px solid var(--border-soft);
+  margin-top: 22px;
+  padding-top: 22px;
+}
+
+.emptyState {
+  display: grid;
+  gap: 12px;
+  margin-top: 18px;
+  max-width: 720px;
+}
+
+.emptyState p {
+  color: var(--text-description);
+  margin: 0;
+}
+
+.statusCallout {
+  border: 1px solid var(--border-soft);
+  border-radius: 16px;
+  display: grid;
+  gap: 4px;
+  margin-bottom: 18px;
+  padding: 14px 16px;
+}
+
+.statusCallout span {
+  color: var(--text-description);
+}
+
+.statusCallout.info {
+  background: rgba(99, 102, 241, 0.08);
+}
+
+.statusCallout.success {
+  background: rgba(16, 185, 129, 0.1);
+  border-color: rgba(16, 185, 129, 0.28);
+}
+
+.statusCallout.warning {
+  background: rgba(245, 158, 11, 0.12);
+  border-color: rgba(245, 158, 11, 0.3);
+}
+
+.statusCallout.error {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: rgba(239, 68, 68, 0.3);
+}
+
+.pathPickerField {
+  background: var(--surface-alt);
+  border: 1px solid var(--border-soft);
+  border-radius: 16px;
+  display: grid;
+  gap: 12px;
+  margin-bottom: 18px;
+  padding: 16px;
+}
+
+.pathPickerField span {
+  color: var(--text-secondary);
+  display: block;
+  margin-top: 4px;
+}
+
+.pathPickerField code {
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
+  color: var(--ink-soft);
+  overflow: hidden;
+  padding: 10px 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pathPickerField input {
+  background: var(--surface);
+  border: 1px solid var(--border-input);
+  border-radius: 14px;
+  color: var(--ink);
+  font: inherit;
+  padding: 12px 14px;
+  width: 100%;
 }
 
 button.sourceRow {
@@ -495,6 +661,9 @@ button.sourceRow:disabled {
   .statsGrid,
   .dataGrid,
   .categoryGrid,
+  .quickStartGrid,
+  .sourceTypeGrid,
+  .wizardSteps,
   .mediaGrid {
     grid-template-columns: 1fr;
   }

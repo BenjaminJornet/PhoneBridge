@@ -1,8 +1,9 @@
 use crate::adapters::{AdapterError, BackupSource, DeviceSummary};
 use crate::privacy::redact_identifier;
 use serde::Serialize;
+use std::env;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use tauri::{Emitter, Window};
 use uuid::Uuid;
@@ -42,44 +43,59 @@ pub struct AdbPullResult {
     pub errors: Vec<String>,
 }
 
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AdbDiagnosticDevice {
+    pub source_id: String,
+    pub label: String,
+    pub status: String,
+    pub model: Option<String>,
+    pub manufacturer: Option<String>,
+    pub android_version: Option<String>,
+    pub redacted_id: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AdbDiagnostic {
+    pub adb_found: bool,
+    pub adb_path: Option<String>,
+    pub devices: Vec<AdbDiagnosticDevice>,
+    pub message: String,
+    pub next_action: String,
+}
+
+#[derive(Clone, Debug)]
+struct AdbDeviceRow {
+    serial: String,
+    status: String,
+}
+
 pub fn detect_devices() -> Result<Vec<BackupSource>, AdapterError> {
-    let output = Command::new("adb").arg("devices").output();
-    let Ok(output) = output else {
-        return Err(AdapterError::CommandUnavailable("adb".to_string()));
-    };
-
-    if !output.status.success() {
-        return Err(AdapterError::CommandFailed("adb devices".to_string()));
-    }
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let devices = stdout
-        .lines()
-        .skip(1)
-        .filter_map(|line| {
-            let mut parts = line.split_whitespace();
-            let serial = parts.next()?;
-            let status = parts.next()?;
-            if status != "device" {
+    let devices = parse_adb_devices(&adb_output(&["devices"])?);
+    let sources = devices
+        .into_iter()
+        .filter_map(|device| {
+            if device.status != "device" {
                 return None;
             }
 
-            let model = adb_getprop(serial, "ro.product.model")
+            let model = adb_getprop(&device.serial, "ro.product.model")
                 .filter(|value| !value.is_empty())
                 .unwrap_or_else(|| "Android device".to_string());
-            let manufacturer = adb_getprop(serial, "ro.product.manufacturer")
+            let manufacturer = adb_getprop(&device.serial, "ro.product.manufacturer")
                 .filter(|value| !value.is_empty())
                 .unwrap_or_else(|| "unknown".to_string());
-            let android_version =
-                adb_getprop(serial, "ro.build.version.release").filter(|value| !value.is_empty());
+            let android_version = adb_getprop(&device.serial, "ro.build.version.release")
+                .filter(|value| !value.is_empty());
 
             Some(BackupSource {
-                id: Uuid::new_v5(&Uuid::NAMESPACE_URL, serial.as_bytes()).to_string(),
+                id: source_id_for_serial(&device.serial),
                 adapter: "adb-generic".to_string(),
                 label: format!("{manufacturer} {model}"),
                 path: None,
                 device: Some(DeviceSummary {
-                    id: redact_identifier(serial),
+                    id: redact_identifier(&device.serial),
                     model,
                     manufacturer,
                     android_version,
@@ -90,7 +106,108 @@ pub fn detect_devices() -> Result<Vec<BackupSource>, AdapterError> {
         })
         .collect();
 
-    Ok(devices)
+    Ok(sources)
+}
+
+pub fn diagnose_adb() -> AdbDiagnostic {
+    let Ok(adb_path) = resolve_adb_command() else {
+        return AdbDiagnostic {
+            adb_found: false,
+            adb_path: None,
+            devices: Vec::new(),
+            message: "ADB was not found from the app environment.".to_string(),
+            next_action: "Install Android Platform Tools, or set ADB_PATH to the adb binary path."
+                .to_string(),
+        };
+    };
+
+    let output = Command::new(&adb_path).arg("devices").output();
+    let Ok(output) = output else {
+        return AdbDiagnostic {
+            adb_found: true,
+            adb_path: Some(adb_path.to_string_lossy().into_owned()),
+            devices: Vec::new(),
+            message: "ADB was found, but PhoneBridge could not run `adb devices`.".to_string(),
+            next_action: "Try reconnecting the phone, then refresh devices.".to_string(),
+        };
+    };
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return AdbDiagnostic {
+            adb_found: true,
+            adb_path: Some(adb_path.to_string_lossy().into_owned()),
+            devices: Vec::new(),
+            message: if stderr.is_empty() {
+                "`adb devices` failed.".to_string()
+            } else {
+                stderr
+            },
+            next_action: "Restart ADB or reconnect the phone, then refresh devices.".to_string(),
+        };
+    }
+
+    let rows = parse_adb_devices(&String::from_utf8_lossy(&output.stdout));
+    let devices: Vec<_> = rows
+        .into_iter()
+        .map(|device| {
+            let model =
+                adb_getprop(&device.serial, "ro.product.model").filter(|value| !value.is_empty());
+            let manufacturer = adb_getprop(&device.serial, "ro.product.manufacturer")
+                .filter(|value| !value.is_empty());
+            let android_version = adb_getprop(&device.serial, "ro.build.version.release")
+                .filter(|value| !value.is_empty());
+            let label = match (&manufacturer, &model) {
+                (Some(manufacturer), Some(model)) => format!("{manufacturer} {model}"),
+                (_, Some(model)) => model.clone(),
+                _ => "Android device".to_string(),
+            };
+            AdbDiagnosticDevice {
+                source_id: source_id_for_serial(&device.serial),
+                label,
+                status: device.status,
+                model,
+                manufacturer,
+                android_version,
+                redacted_id: redact_identifier(&device.serial),
+            }
+        })
+        .collect();
+
+    let authorized = devices
+        .iter()
+        .filter(|device| device.status == "device")
+        .count();
+    let (message, next_action) = if authorized > 0 {
+        (
+            format!("{authorized} authorized Android device(s) ready."),
+            "Select the Android phone source, then copy media when you are ready.".to_string(),
+        )
+    } else if devices.iter().any(|device| device.status == "unauthorized") {
+        (
+            "A phone is connected but not authorized for USB debugging.".to_string(),
+            "Unlock the phone and accept the USB debugging prompt, then refresh devices."
+                .to_string(),
+        )
+    } else if devices.iter().any(|device| device.status == "offline") {
+        (
+            "A phone is connected but ADB reports it as offline.".to_string(),
+            "Reconnect the cable or toggle USB debugging, then refresh devices.".to_string(),
+        )
+    } else {
+        (
+            "ADB is installed, but no Android phone is connected.".to_string(),
+            "Connect a phone with USB debugging enabled, then refresh devices.".to_string(),
+        )
+    };
+
+    AdbDiagnostic {
+        adb_found: true,
+        adb_path: Some(adb_path.to_string_lossy().into_owned()),
+        devices,
+        message,
+        next_action,
+    }
 }
 
 pub fn pull_device_media_by_source_id(
@@ -113,9 +230,7 @@ fn resolve_serial_for_source_id(source_id: &str) -> Result<String, AdapterError>
         let Some(status) = parts.next() else {
             continue;
         };
-        if status == "device"
-            && Uuid::new_v5(&Uuid::NAMESPACE_URL, serial.as_bytes()).to_string() == source_id
-        {
+        if status == "device" && source_id_for_serial(serial) == source_id {
             return Ok(serial.to_string());
         }
     }
@@ -210,7 +325,7 @@ fn adb_pull(serial: &str, remote_path: &str, local_path: &Path) -> Result<(), Ad
         fs::create_dir_all(parent)?;
     }
 
-    let output = Command::new("adb")
+    let output = Command::new(resolve_adb_command()?)
         .args(["-s", serial, "pull", remote_path])
         .arg(local_path)
         .output();
@@ -249,7 +364,7 @@ fn adb_getprop(serial: &str, property: &str) -> Option<String> {
 }
 
 fn adb_output(args: &[&str]) -> Result<String, AdapterError> {
-    let output = Command::new("adb").args(args).output();
+    let output = Command::new(resolve_adb_command()?).args(args).output();
     let Ok(output) = output else {
         return Err(AdapterError::CommandUnavailable("adb".to_string()));
     };
@@ -261,6 +376,57 @@ fn adb_output(args: &[&str]) -> Result<String, AdapterError> {
     }
 
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+fn resolve_adb_command() -> Result<PathBuf, AdapterError> {
+    let mut candidates = Vec::new();
+    if let Some(path) = env::var_os("ADB_PATH").filter(|value| !value.is_empty()) {
+        candidates.push(PathBuf::from(path));
+    }
+    candidates.push(PathBuf::from("adb"));
+    candidates.push(PathBuf::from("/opt/homebrew/bin/adb"));
+    candidates.push(PathBuf::from("/usr/local/bin/adb"));
+    for env_name in ["ANDROID_HOME", "ANDROID_SDK_ROOT"] {
+        if let Some(root) = env::var_os(env_name).filter(|value| !value.is_empty()) {
+            candidates.push(PathBuf::from(root).join("platform-tools/adb"));
+        }
+    }
+
+    for candidate in candidates {
+        if adb_candidate_works(&candidate) {
+            return Ok(candidate);
+        }
+    }
+
+    Err(AdapterError::CommandUnavailable("adb".to_string()))
+}
+
+fn adb_candidate_works(candidate: &Path) -> bool {
+    Command::new(candidate)
+        .arg("version")
+        .output()
+        .map(|output| output.status.success())
+        .unwrap_or(false)
+}
+
+fn parse_adb_devices(output: &str) -> Vec<AdbDeviceRow> {
+    output
+        .lines()
+        .skip(1)
+        .filter_map(|line| {
+            let mut parts = line.split_whitespace();
+            let serial = parts.next()?;
+            let status = parts.next()?;
+            Some(AdbDeviceRow {
+                serial: serial.to_string(),
+                status: status.to_string(),
+            })
+        })
+        .collect()
+}
+
+fn source_id_for_serial(serial: &str) -> String {
+    Uuid::new_v5(&Uuid::NAMESPACE_URL, serial.as_bytes()).to_string()
 }
 
 #[cfg(test)]
@@ -297,5 +463,29 @@ mod tests {
         assert!(labels.contains(&"Movies"));
         assert!(labels.contains(&"Music"));
         assert!(labels.contains(&"WhatsApp Media"));
+    }
+
+    #[test]
+    fn parses_adb_device_statuses() {
+        let rows = parse_adb_devices(
+            "List of devices attached\nSERIAL1\tdevice\nSERIAL2\tunauthorized\nSERIAL3\toffline\n",
+        );
+
+        assert_eq!(rows.len(), 3);
+        assert_eq!(rows[0].status, "device");
+        assert_eq!(rows[1].status, "unauthorized");
+        assert_eq!(rows[2].status, "offline");
+    }
+
+    #[test]
+    fn adb_source_ids_are_stable() {
+        assert_eq!(
+            source_id_for_serial("SERIAL"),
+            source_id_for_serial("SERIAL")
+        );
+        assert_ne!(
+            source_id_for_serial("SERIAL"),
+            source_id_for_serial("OTHER")
+        );
     }
 }

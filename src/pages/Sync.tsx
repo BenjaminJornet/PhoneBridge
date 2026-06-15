@@ -1,9 +1,12 @@
 import { useEffect, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { listen } from "@tauri-apps/api/event";
+import PathPickerField from "../components/PathPickerField";
 import SectionHeader from "../components/SectionHeader";
+import StatusCallout from "../components/StatusCallout";
 import {
   getAdapterRegistry,
+  diagnoseAdb,
   indexMultimedia,
   listBackupCoverage,
   planConsolidation,
@@ -18,6 +21,7 @@ import type {
   BackupCoverage,
   BackupSource,
   AdapterDefinition,
+  AdbDiagnostic,
   AdbPullResult,
   ConsolidationPlan,
   ConsolidationResult,
@@ -25,6 +29,7 @@ import type {
   SmartSwitchCategory,
   SmartSwitchSyncResult,
 } from "../lib/types";
+import type { StatusTone } from "../lib/ux";
 
 const syncSteps = [
   "Detect connected Android devices via ADB",
@@ -33,6 +38,10 @@ const syncSteps = [
   "Index recovered data into SQLite",
   "Generate thumbnails and searchable metadata",
 ];
+
+function hasTauriRuntime(): boolean {
+  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+}
 
 export default function Sync() {
   const [sources, setSources] = useState<BackupSource[]>([]);
@@ -45,6 +54,7 @@ export default function Sync() {
   const [summary, setSummary] = useState<IndexSummary | null>(null);
   const [syncResult, setSyncResult] = useState<SmartSwitchSyncResult | null>(null);
   const [adbPullResult, setAdbPullResult] = useState<AdbPullResult | null>(null);
+  const [adbDiagnostic, setAdbDiagnostic] = useState<AdbDiagnostic | null>(null);
   const [consolidationPlan, setConsolidationPlan] = useState<ConsolidationPlan | null>(null);
   const [consolidationResult, setConsolidationResult] = useState<ConsolidationResult | null>(null);
   const [backupCoverage, setBackupCoverage] = useState<BackupCoverage[]>([]);
@@ -52,15 +62,19 @@ export default function Sync() {
   const [syncProgress, setSyncProgress] = useState<{ copiedFiles: number; skippedFiles: number; currentPath: string } | null>(null);
   const [adbPullProgress, setAdbPullProgress] = useState<{ pulledPaths: number; skippedPaths: number; pulledFiles: number; skippedFiles: number; totalFiles: number; currentPath: string } | null>(null);
   const [status, setStatus] = useState("Ready");
+  const [statusTone, setStatusTone] = useState<StatusTone>("info");
+  const [showAdvancedTools, setShowAdvancedTools] = useState(false);
+  const [busyAction, setBusyAction] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
 
-    Promise.all([scanBackupSources(), getAdapterRegistry()])
-      .then(([backupSources, registry]) => {
+    Promise.all([scanBackupSources(), getAdapterRegistry(), diagnoseAdb()])
+      .then(([backupSources, registry, diagnostic]) => {
         if (!cancelled) {
           const nextSources = backupSources;
           setAdapterRegistry(registry);
+          setAdbDiagnostic(diagnostic);
           setSources(nextSources);
           const firstSmartSwitch = nextSources.find((source) => source.adapter === "samsung-smartswitch" && source.path);
           if (firstSmartSwitch?.path) {
@@ -72,6 +86,7 @@ export default function Sync() {
       .catch((cause: unknown) => {
         if (!cancelled) {
           setStatus(cause instanceof Error ? cause.message : String(cause));
+          setStatusTone("warning");
         }
       });
 
@@ -81,6 +96,10 @@ export default function Sync() {
   }, []);
 
   useEffect(() => {
+    if (!hasTauriRuntime()) {
+      return;
+    }
+
     let cancelled = false;
     let unlisten: (() => void) | undefined;
 
@@ -173,13 +192,19 @@ export default function Sync() {
       return;
     }
 
+    setBusyAction("index");
     setStatus("Indexing selected folder...");
+    setStatusTone("info");
     try {
       const nextSummary = await indexMultimedia(selectedSourcePath);
       setSummary(nextSummary);
       setStatus("Index complete");
+      setStatusTone("success");
     } catch (cause) {
       setStatus(cause instanceof Error ? cause.message : String(cause));
+      setStatusTone("error");
+    } finally {
+      setBusyAction(null);
     }
   }
 
@@ -189,7 +214,9 @@ export default function Sync() {
       return;
     }
 
+    setBusyAction("smartswitch-sync");
     setStatus("Synchronizing SmartSwitch backup without deleting or overwriting files...");
+    setStatusTone("info");
     setSyncResult(null);
     setSyncProgress(null);
     try {
@@ -201,8 +228,12 @@ export default function Sync() {
       setSyncResult(result);
       setSyncProgress(null);
       setStatus("SmartSwitch sync complete");
+      setStatusTone("success");
     } catch (cause) {
       setStatus(cause instanceof Error ? cause.message : String(cause));
+      setStatusTone("error");
+    } finally {
+      setBusyAction(null);
     }
   }
 
@@ -213,7 +244,9 @@ export default function Sync() {
       return;
     }
 
+    setBusyAction("adb-pull");
     setStatus("Pulling media from the Android device without modifying it...");
+    setStatusTone("info");
     setAdbPullResult(null);
     setAdbPullProgress(null);
     try {
@@ -221,9 +254,13 @@ export default function Sync() {
       setAdbPullResult(result);
       setAdbPullProgress(null);
       setSelectedSourcePath(result.sourcePath);
-      setStatus("ADB media pull complete");
+      setStatus("Phone media copied into a temporary import folder. Preview it next.");
+      setStatusTone("success");
     } catch (cause) {
       setStatus(cause instanceof Error ? cause.message : String(cause));
+      setStatusTone("error");
+    } finally {
+      setBusyAction(null);
     }
   }
 
@@ -256,15 +293,21 @@ export default function Sync() {
       return;
     }
 
-    setStatus("Planning content-deduplicated consolidation...");
+    setBusyAction("preview");
+    setStatus("Previewing what will be added to your local library...");
+    setStatusTone("info");
     setConsolidationPlan(null);
     setConsolidationResult(null);
     try {
       const plan = await planConsolidation(consolidationConfig());
       setConsolidationPlan(plan);
-      setStatus("Dry-run plan ready");
+      setStatus("Preview ready. Review the numbers, then import when you are ready.");
+      setStatusTone("success");
     } catch (cause) {
       setStatus(cause instanceof Error ? cause.message : String(cause));
+      setStatusTone("error");
+    } finally {
+      setBusyAction(null);
     }
   }
 
@@ -274,7 +317,9 @@ export default function Sync() {
       return;
     }
 
-    setStatus("Consolidating by content hash without deleting originals...");
+    setBusyAction("import");
+    setStatus("Importing and deduplicating without deleting originals...");
+    setStatusTone("info");
     setConsolidationResult(null);
     setProgress(null);
     try {
@@ -283,9 +328,13 @@ export default function Sync() {
       setConsolidationPlan(result.plan);
       setBackupCoverage(await listBackupCoverage());
       setProgress(null);
-      setStatus("Consolidation complete");
+      setStatus("Import complete. Your originals were left untouched.");
+      setStatusTone("success");
     } catch (cause) {
       setStatus(cause instanceof Error ? cause.message : String(cause));
+      setStatusTone("error");
+    } finally {
+      setBusyAction(null);
     }
   }
 
@@ -297,19 +346,99 @@ export default function Sync() {
     }
   }
 
+  async function refreshAdb() {
+    setBusyAction("adb-refresh");
+    setStatus("Checking Android devices...");
+    setStatusTone("info");
+    try {
+      const [nextSources, diagnostic] = await Promise.all([scanBackupSources(), diagnoseAdb()]);
+      setSources(nextSources);
+      setAdbDiagnostic(diagnostic);
+      const authorized = nextSources.find((source) => source.adapter === "adb-generic");
+      if (authorized) {
+        selectSource(authorized);
+        setStatus("Android phone ready. Click Copy media from phone when you want to import it.");
+        setStatusTone("success");
+      } else {
+        setStatus(diagnostic.message);
+        setStatusTone(diagnostic.adbFound ? "warning" : "error");
+      }
+    } catch (cause) {
+      setStatus(cause instanceof Error ? cause.message : String(cause));
+      setStatusTone("error");
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
   async function chooseDestinationFolder() {
+    setStatus("Opening library folder picker...");
+    setStatusTone("info");
     const selected = await open({ directory: true, multiple: false });
     if (typeof selected === "string") {
       setDestinationPath(selected);
+      setStatus("Library folder selected.");
+      setStatusTone("success");
+    } else {
+      setStatus("No library folder selected.");
+      setStatusTone("warning");
     }
   }
 
   async function chooseSourceFolder() {
+    setStatus("Opening source folder picker...");
+    setStatusTone("info");
     const selected = await open({ directory: true, multiple: false });
     if (typeof selected === "string") {
-      setSelectedSourceId("");
-      setSelectedSourcePath(selected);
+      const source = manualSource("generic-folder", selected);
+      setSources((current) => upsertSource(current, source));
+      selectSource(source);
+      setStatus("Folder selected. Preview the import next.");
+      setStatusTone("success");
+    } else {
+      setStatus("No source folder selected.");
+      setStatusTone("warning");
     }
+  }
+
+  async function chooseSmartSwitchFolder() {
+    setStatus("Opening SmartSwitch backup picker...");
+    setStatusTone("info");
+    const selected = await open({ directory: true, multiple: false });
+    if (typeof selected !== "string") {
+      setStatus("No SmartSwitch folder selected.");
+      setStatusTone("warning");
+      return;
+    }
+
+    const source = manualSource("samsung-smartswitch", selected);
+    setSources((current) => upsertSource(current, source));
+    selectSource(source);
+    setStatus("SmartSwitch folder selected. Scanning categories...");
+    setStatusTone("info");
+    try {
+      const nextCategories = await scanSmartSwitchCategories(selected);
+      setCategories(nextCategories);
+      setSelectedCategories(nextCategories.map((category) => category.name));
+      setStatus(nextCategories.length > 0 ? "SmartSwitch categories found. Preview the import next." : "No SmartSwitch media categories found. You can still import this folder generically.");
+      setStatusTone(nextCategories.length > 0 ? "success" : "warning");
+    } catch (cause) {
+      setStatus(cause instanceof Error ? cause.message : String(cause));
+      setStatusTone("warning");
+    }
+  }
+
+  function manualSource(adapter: "generic-folder" | "samsung-smartswitch", path: string): BackupSource {
+    return {
+      id: `manual-${adapter}:${path}`,
+      adapter,
+      label: adapter === "samsung-smartswitch" ? "Selected SmartSwitch backup" : "Selected folder",
+      path,
+    };
+  }
+
+  function upsertSource(current: BackupSource[], source: BackupSource): BackupSource[] {
+    return [source, ...current.filter((item) => item.id !== source.id)];
   }
 
   function toggleCategory(category: string) {
@@ -322,32 +451,131 @@ export default function Sync() {
     setSelectedCategories(categories.map((category) => category.name));
   }
 
+  const selectedSource = sources.find((source) => source.id === selectedSourceId || source.path === selectedSourcePath);
+  const adbSources = sources.filter((source) => source.adapter === "adb-generic");
+  const backupSources = sources.filter((source) => source.path);
+  const canPreview = Boolean(selectedSourcePath);
+  const canImport = Boolean(consolidationPlan && selectedSourcePath);
+
+  async function handlePrimaryAction() {
+    if (selectedSource?.adapter === "adb-generic" && !selectedSourcePath) {
+      await handlePullFromDevice();
+      return;
+    }
+    if (!consolidationPlan) {
+      await handlePlanConsolidation();
+      return;
+    }
+    await handleRunConsolidation();
+  }
+
+  function primaryActionLabel() {
+    if (selectedSource?.adapter === "adb-generic" && !selectedSourcePath) {
+      return "Copy media from phone";
+    }
+    if (!selectedSourcePath) {
+      return "Choose a source first";
+    }
+    if (!consolidationPlan) {
+      return "Preview import";
+    }
+    return "Import and deduplicate";
+  }
+
   return (
     <section>
       <SectionHeader
-        eyebrow="Sync engine"
-        title="One workflow for live devices and local backups."
-        description="This screen will replace the shell scripts with resumable, observable imports and explicit category selection."
+        eyebrow="Guided import"
+        title="Choose one source. Preview it. Then import safely."
+        description="PhoneBridge keeps originals untouched. It copies data into your local library only after you review what will be added or deduplicated."
       />
       <div className="card listCard">
-        <div className="syncActions">
-          <button className="primaryButton" onClick={handlePlanConsolidation} type="button">
-            Preview consolidation
-          </button>
-          <button className="primaryButton" onClick={handleRunConsolidation} type="button">
-            Consolidate by content
-          </button>
-          <button className="primaryButton" onClick={handleRunSmartSwitchSync} type="button">
-            Sync selected SmartSwitch categories
-          </button>
-          <button className="primaryButton" onClick={handlePullFromDevice} type="button">
-            Pull from Android device
-          </button>
-          <button className="primaryButton" onClick={handleIndexMultimedia} type="button">
-            Index selected folder
-          </button>
-          <span>{status}</span>
+        <div className="wizardSteps" aria-label="Import steps">
+          <div className="step activeStep"><span>1</span><p>Choose a source</p></div>
+          <div className={canPreview ? "step activeStep" : "step"}><span>2</span><p>Preview the import</p></div>
+          <div className={canImport ? "step activeStep" : "step"}><span>3</span><p>Import safely</p></div>
         </div>
+        <StatusCallout title="Import status" message={status} tone={statusTone} />
+        <h2>Pick what you want to import</h2>
+        <div className="sourceTypeGrid">
+          <button
+            className={selectedSource?.adapter === "adb-generic" ? "sourceTypeCard selectedSource" : "sourceTypeCard"}
+            onClick={() => {
+              if (adbSources[0]) {
+                selectSource(adbSources[0]);
+                setStatus("Android phone selected. Click Copy media from phone when you are ready.");
+                setStatusTone("success");
+              } else {
+                void refreshAdb();
+              }
+            }}
+            type="button"
+          >
+            <strong>Android phone</strong>
+            <span>{adbSources.length > 0 ? `${adbSources[0].label} ready` : "Check USB / ADB connection"}</span>
+            <small>Copies common media folders into a temporary local import folder.</small>
+          </button>
+          <button
+            className={selectedSource?.adapter === "samsung-smartswitch" ? "sourceTypeCard selectedSource" : "sourceTypeCard"}
+            onClick={() => {
+              const smartSwitch = backupSources.find((source) => source.adapter === "samsung-smartswitch");
+              if (smartSwitch) {
+                selectSource(smartSwitch);
+                setStatus("SmartSwitch backup selected. Preview the import next.");
+                setStatusTone("success");
+              } else {
+                void chooseSmartSwitchFolder();
+              }
+            }}
+            type="button"
+          >
+            <strong>SmartSwitch backup</strong>
+            <span>{backupSources.some((source) => source.adapter === "samsung-smartswitch") ? "Backup ready" : "Choose backup folder"}</span>
+            <small>Reads media and structured backup categories when available.</small>
+          </button>
+          <button className={!selectedSourceId && selectedSourcePath ? "sourceTypeCard selectedSource" : "sourceTypeCard"} onClick={chooseSourceFolder} type="button">
+            <strong>Any folder</strong>
+            <span>Photos, videos, music, documents</span>
+            <small>Best for exports, copied phone folders, or external drives.</small>
+          </button>
+        </div>
+        <PathPickerField
+          buttonLabel="Choose source folder"
+          description="Only needed when PhoneBridge did not detect your backup automatically."
+          label="Selected source"
+          onChange={setSelectedSourcePath}
+          onChoose={chooseSourceFolder}
+          value={selectedSourcePath}
+        />
+        <PathPickerField
+          buttonLabel="Choose library folder"
+          description="Where PhoneBridge stores deduplicated copies. Originals stay where they are."
+          label="PhoneBridge library"
+          onChange={setDestinationPath}
+          onChoose={chooseDestinationFolder}
+          value={destinationPath}
+        />
+        <div className="syncActions">
+          <button className="primaryButton" disabled={Boolean(busyAction) || (!selectedSourcePath && selectedSource?.adapter !== "adb-generic")} onClick={handlePrimaryAction} type="button">
+            {busyAction ? "Working..." : primaryActionLabel()}
+          </button>
+          <button className="pill" disabled={busyAction === "adb-refresh"} onClick={refreshAdb} type="button">
+            {busyAction === "adb-refresh" ? "Checking devices..." : "Refresh Android devices"}
+          </button>
+          {consolidationPlan && (
+            <button className="pill" onClick={() => setConsolidationPlan(null)} type="button">Preview again</button>
+          )}
+        </div>
+        {adbDiagnostic && (
+          <div className="summaryBox">
+            <strong>{adbDiagnostic.message}</strong>
+            <span>{adbDiagnostic.nextAction}</span>
+            {adbDiagnostic.adbPath && <small>ADB: {adbDiagnostic.adbPath}</small>}
+            {adbDiagnostic.devices.map((device) => (
+              <small key={device.sourceId}>{device.label} · {device.status} · {device.redactedId}</small>
+            ))}
+          </div>
+        )}
         {summary && (
           <div className="summaryBox">
             <strong>{formatCount(summary.scannedFiles)} files indexed</strong>
@@ -437,24 +665,14 @@ export default function Sync() {
             ))}
           </div>
         )}
-        <h2>Destination</h2>
-        <div className="syncActions">
-          <button className="pill" onClick={chooseSourceFolder} type="button">Choose source folder</button>
-          <button className="pill" onClick={chooseDestinationFolder} type="button">Choose destination folder</button>
-        </div>
-        <label className="pathField">
-          <span>Aggregated target folder</span>
-          <input value={destinationPath} onChange={(event) => setDestinationPath(event.target.value)} />
-        </label>
-        <small>Content-addressed library target: {destinationPath}</small>
-        <h2>SmartSwitch categories</h2>
+        {categories.length > 0 && <h2>SmartSwitch categories</h2>}
+        {categories.length > 0 && (
         <div className="syncActions">
           <button className="pill" onClick={selectAllCategories} type="button">Select all</button>
           <button className="pill" onClick={() => setSelectedCategories([])} type="button">Clear</button>
         </div>
-        {categories.length === 0 ? (
-          <p>No media category found for the selected SmartSwitch source.</p>
-        ) : (
+        )}
+        {categories.length > 0 && (
           <div className="categoryGrid">
             {categories.map((category) => (
               <label className="categoryChoice" key={category.name}>
@@ -472,13 +690,26 @@ export default function Sync() {
             ))}
           </div>
         )}
-        <h2>Engine steps</h2>
-        {syncSteps.map((step, index) => (
-          <div className="step" key={step}>
-            <span>{index + 1}</span>
-            <p>{step}</p>
+        <button className="pill" onClick={() => setShowAdvancedTools((current) => !current)} type="button">
+          {showAdvancedTools ? "Hide advanced tools" : "Show advanced tools"}
+        </button>
+        {showAdvancedTools && (
+          <div className="advancedPanel">
+            <h2>Advanced tools</h2>
+            <p className="mutedText">Use these only when you want a specific low-level operation instead of the guided import.</p>
+            <div className="syncActions">
+              <button className="pill" onClick={handleIndexMultimedia} type="button">Index selected folder only</button>
+              <button className="pill" onClick={handleRunSmartSwitchSync} type="button">Copy selected SmartSwitch categories</button>
+              <button className="pill" onClick={handlePullFromDevice} type="button">Copy from phone to staging</button>
+            </div>
+            {syncSteps.map((step, index) => (
+              <div className="step" key={step}>
+                <span>{index + 1}</span>
+                <p>{step}</p>
+              </div>
+            ))}
           </div>
-        ))}
+        )}
         <h2>Safe-purge advisor</h2>
         <div className="syncActions">
           <button className="pill" onClick={refreshCoverage} type="button">Refresh coverage</button>

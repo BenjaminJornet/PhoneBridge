@@ -1,5 +1,6 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { useEffect, useState } from "react";
+import EmptyState from "../components/EmptyState";
 import SectionHeader from "../components/SectionHeader";
 import { listIndexedFiles } from "../lib/api";
 import { formatBytes } from "../lib/format";
@@ -15,7 +16,11 @@ const filters = [
 
 const previewablePhotoExtensions = new Set(["avif", "gif", "jpeg", "jpg", "png", "webp"]);
 
-export default function Gallery() {
+interface GalleryProps {
+  onImport: () => void;
+}
+
+export default function Gallery({ onImport }: GalleryProps) {
   const [activeCategory, setActiveCategory] = useState<string | undefined>();
   const [files, setFiles] = useState<IndexedFile[]>([]);
   const [status, setStatus] = useState("Loading indexed files...");
@@ -28,7 +33,7 @@ export default function Gallery() {
       .then((nextFiles) => {
         if (!cancelled) {
           setFiles(nextFiles);
-          setStatus(nextFiles.length === 0 ? "No indexed files yet. Run Sync > Index selected folder first." : "Ready");
+          setStatus(nextFiles.length === 0 ? "No files in this view yet." : "Ready");
         }
       })
       .catch((cause: unknown) => {
@@ -46,8 +51,8 @@ export default function Gallery() {
     <section>
       <SectionHeader
         eyebrow="Media"
-        title="A fast local gallery for large Android archives."
-        description="The gallery will use lazy thumbnails, date/source filters, and direct filesystem playback without loading large videos into memory."
+        title="Your recovered media library."
+        description="Browse files that PhoneBridge has already imported or indexed locally. Nothing is uploaded anywhere."
       />
       <div className="filterRow">
         {filters.map((filter) => (
@@ -62,18 +67,27 @@ export default function Gallery() {
         ))}
       </div>
       <p className="mutedText">{status}</p>
-      <div className="mediaGrid" aria-label="Indexed media grid">
-        {files.map((file) => (
-          <article className="mediaTile" key={file.id} title={file.absolutePath}>
-            {file.category === "photo" && file.extension && previewablePhotoExtensions.has(file.extension) && (
-              <img alt={file.relativePath} loading="lazy" src={convertFileSrc(file.absolutePath)} />
-            )}
-            <strong>{file.extension?.toUpperCase() ?? file.category}</strong>
-            <span>{file.relativePath}</span>
-            <small>{file.source} · {formatBytes(file.sizeBytes)}</small>
-          </article>
-        ))}
-      </div>
+      {files.length === 0 ? (
+        <EmptyState
+          title="Import something first."
+          description="Choose an Android phone, SmartSwitch backup, or folder. PhoneBridge will preview the import before copying anything."
+          actionLabel="Start guided import"
+          onAction={onImport}
+        />
+      ) : (
+        <div className="mediaGrid" aria-label="Indexed media grid">
+          {files.map((file) => (
+            <article className="mediaTile" key={file.id} title={file.absolutePath}>
+              {file.category === "photo" && file.extension && previewablePhotoExtensions.has(file.extension) && (
+                <img alt={file.relativePath} loading="lazy" src={convertFileSrc(file.absolutePath)} />
+              )}
+              <strong>{file.extension?.toUpperCase() ?? file.category}</strong>
+              <span>{file.relativePath}</span>
+              <small>{file.source} · {formatBytes(file.sizeBytes)}</small>
+            </article>
+          ))}
+        </div>
+      )}
     </section>
   );
 }

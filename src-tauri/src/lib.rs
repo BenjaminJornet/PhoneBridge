@@ -14,6 +14,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             commands::detect_adb_devices,
+            commands::diagnose_adb,
             commands::get_adapter_registry,
             commands::get_category_metrics,
             commands::get_smartswitch_archive_inventory,

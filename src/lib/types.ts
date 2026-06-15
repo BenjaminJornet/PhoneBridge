@@ -119,6 +119,24 @@ export interface AdbPullResult {
   errors: string[];
 }
 
+export interface AdbDiagnosticDevice {
+  sourceId: string;
+  label: string;
+  status: string;
+  model?: string;
+  manufacturer?: string;
+  androidVersion?: string;
+  redactedId: string;
+}
+
+export interface AdbDiagnostic {
+  adbFound: boolean;
+  adbPath?: string;
+  devices: AdbDiagnosticDevice[];
+  message: string;
+  nextAction: string;
+}
+
 export interface WhatsAppDecryptConfig {
   encryptedDbPath: string;
   keyPath?: string;

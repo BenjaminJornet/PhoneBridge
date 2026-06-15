@@ -1,9 +1,13 @@
 import { useEffect, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
+import PathPickerField from "../components/PathPickerField";
 import SectionHeader from "../components/SectionHeader";
+import StatusCallout from "../components/StatusCallout";
 import { decryptWhatsAppDatabase, getCategoryMetrics, getSmartSwitchArchiveInventory, getSmartSwitchItemMetrics, getStructuredRecords } from "../lib/api";
 import { formatBytes, formatCount } from "../lib/format";
 import type { CategoryMetric, SmartSwitchArchiveInventory, SmartSwitchItemMetric, StructuredRecord, WhatsAppDecryptResult } from "../lib/types";
+import { mapWhatsAppError } from "../lib/ux";
+import type { StatusTone } from "../lib/ux";
 
 const categories = [
   { label: "Contacts", status: "SmartSwitch encrypted contacts parse into local structured records" },
@@ -25,7 +29,9 @@ export default function DataExplorer() {
   const [whatsAppKeyHex, setWhatsAppKeyHex] = useState("");
   const [whatsAppOutputPath, setWhatsAppOutputPath] = useState("~/.phonebridge/whatsapp/msgstore.db");
   const [whatsAppResult, setWhatsAppResult] = useState<WhatsAppDecryptResult | null>(null);
-  const [whatsAppStatus, setWhatsAppStatus] = useState("Select an encrypted WhatsApp DB and your own key file or 64-character key.");
+  const [whatsAppStatus, setWhatsAppStatus] = useState("Choose your encrypted WhatsApp database. PhoneBridge will decrypt locally only after you provide your own key.");
+  const [whatsAppTone, setWhatsAppTone] = useState<StatusTone>("info");
+  const [showWhatsAppAdvanced, setShowWhatsAppAdvanced] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -68,9 +74,11 @@ export default function DataExplorer() {
   async function decryptWhatsApp() {
     if (!whatsAppDbPath || (!whatsAppKeyPath && !whatsAppKeyHex.trim())) {
       setWhatsAppStatus("Choose the encrypted DB and provide a key file or 64-character key first.");
+      setWhatsAppTone("warning");
       return;
     }
     setWhatsAppStatus("Decrypting locally. PhoneBridge never extracts keys automatically.");
+    setWhatsAppTone("info");
     setWhatsAppResult(null);
     try {
       const result = await decryptWhatsAppDatabase({
@@ -82,44 +90,65 @@ export default function DataExplorer() {
       setWhatsAppResult(result);
       setStructuredRecords((current) => [...result.records, ...current]);
       setWhatsAppStatus("WhatsApp database decrypted locally.");
+      setWhatsAppTone("success");
     } catch (cause) {
-      setWhatsAppStatus(cause instanceof Error ? cause.message : String(cause));
+      setWhatsAppStatus(mapWhatsAppError(cause instanceof Error ? cause.message : String(cause)));
+      setWhatsAppTone("error");
     }
   }
+
+  const whatsAppReady = Boolean(whatsAppDbPath && (whatsAppKeyPath || whatsAppKeyHex.trim()));
 
   return (
     <section>
       <SectionHeader
         eyebrow="Structured data"
-        title="Beyond media: parse what SmartSwitch already contains."
-        description="SmartSwitch backups can include contacts, messages, call logs, calendar data, notes, app metadata, and permissions."
+        title="Recover messages, contacts, notes, apps, and other backup data."
+        description="Most data appears automatically after an import. WhatsApp is separate because encrypted databases require key material that PhoneBridge will never extract by itself."
       />
       <div className="dataGrid">
         <article className="card dataCard">
+          <span className="eyebrowText">Guided helper</span>
           <h2>WhatsApp messages</h2>
-          <p>Local decrypt only. Provide your own key material; PhoneBridge never roots the phone or extracts keys automatically.</p>
-          <div className="syncActions">
-            <button className="pill" onClick={chooseWhatsAppDb} type="button">Choose encrypted DB</button>
-            <button className="pill" onClick={chooseWhatsAppKey} type="button">Choose key file</button>
-            <button className="primaryButton" onClick={decryptWhatsApp} type="button">Decrypt locally</button>
+          <p>Use this only if you already have a WhatsApp encrypted database and matching key. Everything stays on this computer.</p>
+          <div className="wizardSteps compactWizard" aria-label="WhatsApp decrypt steps">
+            <div className={whatsAppDbPath ? "step activeStep" : "step"}><span>1</span><p>Choose DB</p></div>
+            <div className={whatsAppKeyPath || whatsAppKeyHex ? "step activeStep" : "step"}><span>2</span><p>Provide key</p></div>
+            <div className={whatsAppReady ? "step activeStep" : "step"}><span>3</span><p>Decrypt locally</p></div>
           </div>
+          <PathPickerField
+            buttonLabel="Choose encrypted DB"
+            description="Pick msgstore.db.crypt14 or msgstore.db.crypt15."
+            label="Encrypted WhatsApp database"
+            onChange={setWhatsAppDbPath}
+            onChoose={chooseWhatsAppDb}
+            value={whatsAppDbPath}
+          />
+          <PathPickerField
+            buttonLabel="Choose key file"
+            description="For crypt14, this is usually the full key file. For crypt15, you can also paste a 64-character key below."
+            label="WhatsApp key file"
+            onChange={setWhatsAppKeyPath}
+            onChoose={chooseWhatsAppKey}
+            value={whatsAppKeyPath}
+          />
           <label className="pathField">
-            <span>Encrypted DB</span>
-            <input value={whatsAppDbPath} onChange={(event) => setWhatsAppDbPath(event.target.value)} placeholder="msgstore.db.crypt14 or .crypt15" />
+            <span>Or paste a crypt15 key</span>
+            <input value={whatsAppKeyHex} onChange={(event) => setWhatsAppKeyHex(event.target.value)} placeholder="64 hexadecimal characters, optional" />
           </label>
-          <label className="pathField">
-            <span>Key file</span>
-            <input value={whatsAppKeyPath} onChange={(event) => setWhatsAppKeyPath(event.target.value)} placeholder="key or encrypted_backup.key" />
-          </label>
-          <label className="pathField">
-            <span>64-character key</span>
-            <input value={whatsAppKeyHex} onChange={(event) => setWhatsAppKeyHex(event.target.value)} placeholder="optional crypt15 hex key" />
-          </label>
-          <label className="pathField">
-            <span>Output SQLite DB</span>
-            <input value={whatsAppOutputPath} onChange={(event) => setWhatsAppOutputPath(event.target.value)} />
-          </label>
-          <small>{whatsAppStatus}</small>
+          <button className="pill" onClick={() => setShowWhatsAppAdvanced((current) => !current)} type="button">
+            {showWhatsAppAdvanced ? "Hide advanced output" : "Show advanced output"}
+          </button>
+          {showWhatsAppAdvanced && (
+            <label className="pathField">
+              <span>Output SQLite DB</span>
+              <input value={whatsAppOutputPath} onChange={(event) => setWhatsAppOutputPath(event.target.value)} />
+            </label>
+          )}
+          <div className="syncActions">
+            <button className="primaryButton" disabled={!whatsAppReady} onClick={decryptWhatsApp} type="button">Decrypt locally</button>
+          </div>
+          <StatusCallout title="WhatsApp helper" message={whatsAppStatus} tone={whatsAppTone} />
           {whatsAppResult && (
             <p>{formatCount(whatsAppResult.messageCount)} messages · {formatCount(whatsAppResult.chatCount)} chats · {whatsAppResult.outputPath}</p>
           )}

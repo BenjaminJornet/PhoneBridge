@@ -8,10 +8,10 @@ type Page = "dashboard" | "sync" | "gallery" | "data";
 type Theme = "light" | "dark";
 
 const pages: Array<{ id: Page; label: string }> = [
-  { id: "dashboard", label: "Dashboard" },
-  { id: "sync", label: "Sync" },
-  { id: "gallery", label: "Gallery" },
-  { id: "data", label: "Data" },
+  { id: "dashboard", label: "Start" },
+  { id: "sync", label: "Import" },
+  { id: "gallery", label: "Library" },
+  { id: "data", label: "Data tools" },
 ];
 
 export default function App() {
@@ -67,9 +67,9 @@ export default function App() {
         </button>
       </aside>
       <main className="content">
-        {page === "dashboard" && <Dashboard />}
+        {page === "dashboard" && <Dashboard onNavigate={setPage} />}
         {page === "sync" && <Sync />}
-        {page === "gallery" && <Gallery />}
+        {page === "gallery" && <Gallery onImport={() => setPage("sync")} />}
         {page === "data" && <DataExplorer />}
       </main>
     </div>

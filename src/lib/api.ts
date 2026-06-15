@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   BackupSource,
   BackupCoverage,
+  AdbDiagnostic,
   AdbPullResult,
   AdapterDefinition,
   CategoryMetric,
@@ -46,6 +47,15 @@ export function getCategoryMetrics(): Promise<CategoryMetric[]> {
 
 export function detectAdbDevices(): Promise<BackupSource[]> {
   return invokeIfAvailable("detect_adb_devices", []);
+}
+
+export function diagnoseAdb(): Promise<AdbDiagnostic> {
+  return invokeIfAvailable("diagnose_adb", {
+    adbFound: false,
+    devices: [],
+    message: "ADB diagnostics are available in the desktop app.",
+    nextAction: "Open the packaged PhoneBridge app to check connected phones.",
+  });
 }
 
 export function pullFromDevice(sourceId: string, destinationPath: string): Promise<AdbPullResult> {

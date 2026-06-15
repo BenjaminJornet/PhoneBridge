@@ -1,5 +1,5 @@
 use crate::adapters::{self, AdapterDefinition, BackupSource, CategoryMetric};
-use crate::adb::{self, AdbPullResult};
+use crate::adb::{self, AdbDiagnostic, AdbPullResult};
 use crate::db::{self, IndexSummary, IndexedFile};
 use crate::library::{
     self, BackupCoverage, ConsolidationConfig, ConsolidationPlan, ConsolidationResult,
@@ -24,6 +24,11 @@ pub fn get_adapter_registry() -> Vec<AdapterDefinition> {
 #[tauri::command]
 pub fn detect_adb_devices() -> Result<Vec<BackupSource>, String> {
     adb::detect_devices().map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+pub fn diagnose_adb() -> AdbDiagnostic {
+    adb::diagnose_adb()
 }
 
 #[tauri::command]

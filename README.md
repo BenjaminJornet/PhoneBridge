@@ -111,6 +111,22 @@ xattr -cr /Applications/PhoneBridge.app
 
 This does not notarize the app; it only clears the local download quarantine flag for your copy.
 
+## First Use
+
+PhoneBridge is designed to ask for the minimum it needs.
+
+1. Open **Start** and choose **Start guided import**.
+2. Pick one source: a connected Android phone, a detected SmartSwitch backup, or any folder.
+3. Review the preview, then click **Import and deduplicate**.
+
+By default, PhoneBridge stores deduplicated copies in `~/.phonebridge/library` and leaves your original phone,
+backup, and folder data untouched. Advanced path editing and low-level tools are hidden unless you choose to
+open them.
+
+WhatsApp message databases are handled separately because they are encrypted. PhoneBridge can decrypt locally
+only when you provide your own encrypted database and matching key material; it never roots a phone or extracts
+keys automatically.
+
 ## Privacy model
 
 PhoneBridge handles highly sensitive data (photos, messages, contacts, call logs, device identifiers).
