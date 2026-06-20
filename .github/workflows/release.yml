@@ -18,7 +18,7 @@ jobs:
       matrix:
         include:
           - platform: macos-latest
-            args: --target aarch64-apple-darwin
+            args: --target aarch64-apple-darwin --bundles app
           - platform: ubuntu-latest
             args: ""
           - platform: windows-latest

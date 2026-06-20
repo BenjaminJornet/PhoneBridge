@@ -74,6 +74,7 @@ export function pullFromDevice(
     skippedPaths: 0,
     pulledFiles: 0,
     skippedFiles: 0,
+    permissionDeniedFiles: 0,
     totalFiles: 0,
     errors: [],
   }, { sourceId, destinationPath, selectedKeys });
@@ -98,8 +99,8 @@ export function indexMultimedia(sourcePath: string): Promise<IndexSummary> {
   }, { sourcePath });
 }
 
-export function listIndexedFiles(category?: string, limit = 120): Promise<IndexedFile[]> {
-  return invokeIfAvailable("list_indexed_files", [], { category, limit });
+export function listIndexedFiles(category?: string, limit = 120, offset = 0): Promise<IndexedFile[]> {
+  return invokeIfAvailable("list_indexed_files", [], { category, limit, offset });
 }
 
 export function getSmartSwitchItemMetrics(): Promise<SmartSwitchItemMetric[]> {

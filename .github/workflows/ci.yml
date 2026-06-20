@@ -51,4 +51,4 @@ jobs:
       - name: Audit Rust dependencies
         working-directory: src-tauri
         run: cargo audit
-      - run: npm run tauri -- build
+      - run: npm run tauri -- build --bundles app

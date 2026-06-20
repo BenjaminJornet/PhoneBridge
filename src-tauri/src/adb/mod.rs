@@ -27,6 +27,7 @@ pub struct AdbPullProgress {
     pub skipped_paths: u64,
     pub pulled_files: u64,
     pub skipped_files: u64,
+    pub permission_denied_files: u64,
     pub total_files: u64,
     pub current_path: String,
 }
@@ -50,6 +51,7 @@ pub struct AdbPullResult {
     pub skipped_paths: u64,
     pub pulled_files: u64,
     pub skipped_files: u64,
+    pub permission_denied_files: u64,
     pub total_files: u64,
     pub errors: Vec<String>,
 }
@@ -80,6 +82,12 @@ pub struct AdbDiagnostic {
 struct AdbDeviceRow {
     serial: String,
     status: String,
+}
+
+#[derive(Debug, Default)]
+struct AdbFindResult {
+    files: Vec<String>,
+    permission_denied_files: u64,
 }
 
 pub fn detect_devices() -> Result<Vec<BackupSource>, AdapterError> {
@@ -320,6 +328,7 @@ pub fn pull_device_media(
         skipped_paths: 0,
         pulled_files: 0,
         skipped_files: 0,
+        permission_denied_files: 0,
         total_files: 0,
         errors: Vec::new(),
     };
@@ -333,10 +342,11 @@ pub fn pull_device_media(
             }
         }
 
-        if let Ok(files) = list_remote_files(serial, remote_path) {
-            result.total_files += files.len() as u64;
+        if let Ok(find_result) = list_remote_files(serial, remote_path) {
+            result.total_files += find_result.files.len() as u64;
+            result.permission_denied_files += find_result.permission_denied_files;
             let local_root = source_path.join(label);
-            for remote_file in files {
+            for remote_file in find_result.files {
                 emit_pull_progress(window.as_ref(), &result, &remote_file);
                 match pull_remote_file(serial, remote_path, &remote_file, &local_root) {
                     Ok(()) => result.pulled_files += 1,
@@ -368,20 +378,15 @@ pub fn pull_device_media(
     Ok(result)
 }
 
-fn list_remote_files(serial: &str, remote_path: &str) -> Result<Vec<String>, AdapterError> {
+fn list_remote_files(serial: &str, remote_path: &str) -> Result<AdbFindResult, AdapterError> {
     let output = adb_output(&["-s", serial, "shell", "find", remote_path, "-type", "f"])?;
-    let files: Vec<String> = output
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty() && !line.contains("Permission denied"))
-        .map(ToString::to_string)
-        .collect();
-    if files.is_empty() {
+    let find_result = parse_find_output(&output);
+    if find_result.files.is_empty() {
         return Err(AdapterError::CommandFailed(format!(
             "adb find found no files at {remote_path}"
         )));
     }
-    Ok(files)
+    Ok(find_result)
 }
 
 fn pull_remote_file(
@@ -427,6 +432,7 @@ fn emit_pull_progress(window: Option<&Window>, result: &AdbPullResult, current_p
                 skipped_paths: result.skipped_paths,
                 pulled_files: result.pulled_files,
                 skipped_files: result.skipped_files,
+                permission_denied_files: result.permission_denied_files,
                 total_files: result.total_files,
                 current_path: current_path.to_string(),
             },
@@ -456,18 +462,7 @@ fn adb_output(args: &[&str]) -> Result<String, AdapterError> {
 }
 
 fn resolve_adb_command() -> Result<PathBuf, AdapterError> {
-    let mut candidates = Vec::new();
-    if let Some(path) = env::var_os("ADB_PATH").filter(|value| !value.is_empty()) {
-        candidates.push(PathBuf::from(path));
-    }
-    candidates.push(PathBuf::from("adb"));
-    candidates.push(PathBuf::from("/opt/homebrew/bin/adb"));
-    candidates.push(PathBuf::from("/usr/local/bin/adb"));
-    for env_name in ["ANDROID_HOME", "ANDROID_SDK_ROOT"] {
-        if let Some(root) = env::var_os(env_name).filter(|value| !value.is_empty()) {
-            candidates.push(PathBuf::from(root).join("platform-tools/adb"));
-        }
-    }
+    let candidates = adb_command_candidates();
 
     for candidate in candidates {
         if adb_candidate_works(&candidate) {
@@ -476,6 +471,28 @@ fn resolve_adb_command() -> Result<PathBuf, AdapterError> {
     }
 
     Err(AdapterError::CommandUnavailable("adb".to_string()))
+}
+
+fn adb_command_candidates() -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+    if let Some(path) = env::var_os("ADB_PATH").filter(|value| !value.is_empty()) {
+        candidates.push(PathBuf::from(path));
+    }
+    candidates.push(PathBuf::from("adb"));
+    for env_name in ["ANDROID_HOME", "ANDROID_SDK_ROOT"] {
+        if let Some(root) = env::var_os(env_name).filter(|value| !value.is_empty()) {
+            candidates.push(PathBuf::from(root).join("platform-tools/adb"));
+        }
+    }
+
+    if cfg!(target_os = "macos") {
+        if cfg!(target_arch = "aarch64") {
+            candidates.push(PathBuf::from("/opt/homebrew/bin/adb"));
+        }
+        candidates.push(PathBuf::from("/usr/local/bin/adb"));
+    }
+
+    candidates
 }
 
 fn adb_candidate_works(candidate: &Path) -> bool {
@@ -504,6 +521,22 @@ fn parse_adb_devices(output: &str) -> Vec<AdbDeviceRow> {
 
 fn source_id_for_serial(serial: &str) -> String {
     Uuid::new_v5(&Uuid::NAMESPACE_URL, serial.as_bytes()).to_string()
+}
+
+fn parse_find_output(output: &str) -> AdbFindResult {
+    let mut find_result = AdbFindResult::default();
+    for line in output
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+    {
+        if line.contains("Permission denied") {
+            find_result.permission_denied_files += 1;
+            continue;
+        }
+        find_result.files.push(line.to_string());
+    }
+    find_result
 }
 
 #[cfg(test)]
@@ -564,5 +597,37 @@ mod tests {
             source_id_for_serial("SERIAL"),
             source_id_for_serial("OTHER")
         );
+    }
+
+    #[test]
+    fn counts_permission_denied_find_lines_without_treating_them_as_files() {
+        let parsed = parse_find_output(
+            "/sdcard/DCIM/photo.jpg\nfind: '/sdcard/Android/data': Permission denied\n",
+        );
+
+        assert_eq!(parsed.files, vec!["/sdcard/DCIM/photo.jpg"]);
+        assert_eq!(parsed.permission_denied_files, 1);
+    }
+
+    #[test]
+    fn sdk_paths_are_checked_before_homebrew_fallbacks() {
+        unsafe {
+            env::set_var("ANDROID_HOME", "/android-sdk");
+            env::remove_var("ANDROID_SDK_ROOT");
+            env::remove_var("ADB_PATH");
+        }
+
+        let candidates = adb_command_candidates();
+        let sdk_index = candidates
+            .iter()
+            .position(|candidate| candidate == &PathBuf::from("/android-sdk/platform-tools/adb"))
+            .unwrap();
+        let usr_local_index = candidates
+            .iter()
+            .position(|candidate| candidate == &PathBuf::from("/usr/local/bin/adb"));
+
+        if let Some(usr_local_index) = usr_local_index {
+            assert!(sdk_index < usr_local_index);
+        }
     }
 }

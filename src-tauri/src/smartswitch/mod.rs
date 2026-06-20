@@ -1,7 +1,9 @@
 use crate::adapters::smartswitch::SmartSwitchAdapter;
 use crate::adapters::{AdapterError, BackupAdapter};
+use quick_xml::events::Event;
+use quick_xml::name::QName;
+use quick_xml::Reader;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader, Cursor, Read};
 use std::path::{Path, PathBuf};
@@ -249,54 +251,59 @@ fn read_calllog_records(
 }
 
 fn parse_calllog_xml(backup_id: &str, archive_path: &Path, xml: &[u8]) -> Vec<StructuredRecord> {
-    let xml = String::from_utf8_lossy(xml);
     let mut records = Vec::new();
-    let mut rest = xml.as_ref();
-    while let Some(start) = rest.find("<CallLog") {
-        rest = &rest[start..];
-        let Some(end) = rest.find('>') else {
-            break;
-        };
-        let tag = &rest[..end];
-        let attrs = xml_attrs(tag);
-        let title = attrs
-            .get("name")
-            .or_else(|| attrs.get("number"))
-            .or_else(|| attrs.get("phoneNumber"))
-            .cloned()
-            .unwrap_or_else(|| "Call log".to_string());
-        let subtitle = attrs
-            .get("date")
-            .or_else(|| attrs.get("type"))
-            .or_else(|| attrs.get("duration"))
-            .cloned();
-        records.push(StructuredRecord {
-            id: format!(
-                "{backup_id}:calllog:{}:{}",
-                archive_path.to_string_lossy(),
-                records.len()
-            ),
-            kind: "calllog".to_string(),
-            title,
-            subtitle,
-            source_path: archive_path.to_string_lossy().into_owned(),
-            parse_status: "parsed_decrypted_calllog".to_string(),
-        });
-        rest = &rest[end + 1..];
+    let mut reader = Reader::from_reader(Cursor::new(xml));
+    reader.config_mut().trim_text(true);
+    let mut buffer = Vec::new();
+
+    loop {
+        match reader.read_event_into(&mut buffer) {
+            Ok(Event::Start(event)) | Ok(Event::Empty(event))
+                if event.name() == QName(b"CallLog") =>
+            {
+                let title = xml_attr(&reader, &event, b"name")
+                    .or_else(|| xml_attr(&reader, &event, b"number"))
+                    .or_else(|| xml_attr(&reader, &event, b"phoneNumber"))
+                    .unwrap_or_else(|| "Call log".to_string());
+                let subtitle = xml_attr(&reader, &event, b"date")
+                    .or_else(|| xml_attr(&reader, &event, b"type"))
+                    .or_else(|| xml_attr(&reader, &event, b"duration"));
+                records.push(StructuredRecord {
+                    id: format!(
+                        "{backup_id}:calllog:{}:{}",
+                        archive_path.to_string_lossy(),
+                        records.len()
+                    ),
+                    kind: "calllog".to_string(),
+                    title,
+                    subtitle,
+                    source_path: archive_path.to_string_lossy().into_owned(),
+                    parse_status: "parsed_decrypted_calllog".to_string(),
+                });
+            }
+            Ok(Event::Eof) => break,
+            Err(_) => break,
+            _ => {}
+        }
+        buffer.clear();
     }
+
     records
 }
 
-fn xml_attrs(tag: &str) -> HashMap<String, String> {
-    let mut attrs = HashMap::new();
-    for part in tag.split_whitespace().skip(1) {
-        let Some((key, raw_value)) = part.split_once('=') else {
-            continue;
-        };
-        let value = raw_value.trim_matches('/').trim_matches('"').to_string();
-        attrs.insert(key.to_string(), value);
+fn xml_attr(
+    reader: &Reader<Cursor<&[u8]>>,
+    event: &quick_xml::events::BytesStart<'_>,
+    key: &[u8],
+) -> Option<String> {
+    for attr in event.attributes().flatten() {
+        if attr.key == QName(key) {
+            if let Ok(value) = attr.decode_and_unescape_value(reader.decoder()) {
+                return Some(value.into_owned());
+            }
+        }
     }
-    attrs
+    None
 }
 
 fn read_browser_records(
@@ -1179,6 +1186,19 @@ mod tests {
             .iter()
             .any(|item| item.kind == "calllog"
                 && item.parse_status == "binary_or_proprietary_payload"));
+    }
+
+    #[test]
+    fn preserves_calllog_attributes_with_spaces_and_quotes() {
+        let records = parse_calllog_xml(
+            "backup",
+            Path::new("/tmp/CALLLOG.zip"),
+            br#"<?xml version="1.0"?><CallLogs><CallLog name="Ada Lovelace" number="+100" type="Missed call" date="2026-06-21 &quot;noon&quot;" /></CallLogs>"#,
+        );
+
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].title, "Ada Lovelace");
+        assert_eq!(records[0].subtitle.as_deref(), Some("2026-06-21 \"noon\""));
     }
 
     #[test]

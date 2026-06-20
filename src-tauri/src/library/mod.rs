@@ -1,8 +1,8 @@
 use crate::db::{self, DbError};
+use crate::path_utils::expand_home;
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::env;
 use std::fs;
 use std::fs::File;
 use std::io::{self, BufReader, Read};
@@ -269,7 +269,9 @@ fn execute_consolidation_with_connection(
         // Index the deduplicated content object so it shows up in the gallery and
         // counts towards the dashboard category metrics. Without this the import
         // populated the content store but stayed invisible to the user.
-        if let Err(cause) = index_imported_file(&transaction, &destination_path, &hashed, &config.label) {
+        if let Err(cause) =
+            index_imported_file(&transaction, &destination_path, &hashed, &config.label)
+        {
             errors.push(cause.to_string());
         }
 
@@ -647,26 +649,10 @@ fn insert_occurrence(
     Ok(changed as u64)
 }
 
-fn expand_home(path: &str) -> PathBuf {
-    if path == "~" {
-        return env::var_os("HOME")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from(path));
-    }
-
-    if let Some(rest) = path.strip_prefix("~/") {
-        return env::var_os("HOME")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join(rest);
-    }
-
-    PathBuf::from(path)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sha2::{Digest, Sha256};
     use tempfile::tempdir;
 
     #[test]
@@ -714,14 +700,30 @@ mod tests {
 
         // Imported media must land in the gallery index, deduplicated and categorized.
         let metrics = db::category_metrics(&connection).unwrap();
-        let photos = metrics.iter().find(|item| item.category == "photo").unwrap();
+        let photos = metrics
+            .iter()
+            .find(|item| item.category == "photo")
+            .unwrap();
         // a.jpg and b.jpg share content (one object), c.jpg is a second object → 2 photos.
         assert_eq!(photos.count, 2);
 
-        let gallery = db::list_indexed_files(&connection, Some("photo"), 10).unwrap();
+        let gallery = db::list_indexed_files(&connection, Some("photo"), 10, 0).unwrap();
         assert_eq!(gallery.len(), 2);
         assert!(gallery
             .iter()
             .all(|file| file.absolute_path.contains("objects")));
+    }
+
+    #[test]
+    fn hashes_large_files_in_streaming_chunks() {
+        let temp = tempdir().unwrap();
+        let path = temp.path().join("large.bin");
+        let data = vec![0x5a; 1024 * 1024 + 123];
+        std::fs::write(&path, &data).unwrap();
+
+        let expected = format!("{:x}", Sha256::digest(&data));
+        let actual = hash_file(&path).unwrap();
+
+        assert_eq!(actual, expected);
     }
 }

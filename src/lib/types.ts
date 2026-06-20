@@ -124,6 +124,7 @@ export interface AdbPullResult {
   skippedPaths: number;
   pulledFiles: number;
   skippedFiles: number;
+  permissionDeniedFiles: number;
   totalFiles: number;
   errors: string[];
 }

@@ -21,6 +21,7 @@ flate2 = "1.0"
 hmac = "0.12"
 md-5 = "0.10"
 rusqlite = { version = "0.32", features = ["bundled"] }
+quick-xml = "0.38"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 sha2 = "0.10"

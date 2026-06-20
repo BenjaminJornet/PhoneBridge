@@ -9,9 +9,10 @@ use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 use std::fs;
 use std::io::Read;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use crate::adapters::AdapterError;
+use crate::path_utils::expand_home;
 use crate::smartswitch::StructuredRecord;
 
 type Aes256Gcm16 = AesGcm<aes_gcm::aes::Aes256, U16>;
@@ -465,21 +466,6 @@ fn table_exists(connection: &Connection, table: &str) -> Result<bool, AdapterErr
         )
         .map_err(|err| AdapterError::Parse(err.to_string()))?;
     Ok(exists > 0)
-}
-
-fn expand_home(path: &str) -> PathBuf {
-    if path == "~" {
-        return std::env::var_os("HOME")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from(path));
-    }
-    if let Some(rest) = path.strip_prefix("~/") {
-        return std::env::var_os("HOME")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join(rest);
-    }
-    PathBuf::from(path)
 }
 
 #[cfg(test)]

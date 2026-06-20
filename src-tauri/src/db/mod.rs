@@ -1,4 +1,5 @@
 use crate::adapters::CategoryMetric;
+use crate::path_utils::expand_home;
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
 use std::env;
@@ -263,23 +264,6 @@ pub fn index_folder(source_path: String) -> Result<IndexSummary, DbError> {
     index_multimedia(&mut connection, &root)
 }
 
-fn expand_home(path: &str) -> PathBuf {
-    if path == "~" {
-        return env::var_os("HOME")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from(path));
-    }
-
-    if let Some(rest) = path.strip_prefix("~/") {
-        return env::var_os("HOME")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join(rest);
-    }
-
-    PathBuf::from(path)
-}
-
 pub fn get_indexed_category_metrics() -> Result<Vec<CategoryMetric>, DbError> {
     let connection = open_default_connection()?;
     category_metrics(&connection)
@@ -288,9 +272,15 @@ pub fn get_indexed_category_metrics() -> Result<Vec<CategoryMetric>, DbError> {
 pub fn list_default_indexed_files(
     category: Option<String>,
     limit: Option<u32>,
+    offset: Option<u32>,
 ) -> Result<Vec<IndexedFile>, DbError> {
     let connection = open_default_connection()?;
-    list_indexed_files(&connection, category.as_deref(), limit.unwrap_or(120))
+    list_indexed_files(
+        &connection,
+        category.as_deref(),
+        limit.unwrap_or(120),
+        offset.unwrap_or(0),
+    )
 }
 
 pub fn index_multimedia(connection: &mut Connection, root: &Path) -> Result<IndexSummary, DbError> {
@@ -438,9 +428,11 @@ pub fn list_indexed_files(
     connection: &Connection,
     category: Option<&str>,
     limit: u32,
+    offset: u32,
 ) -> Result<Vec<IndexedFile>, DbError> {
     initialize(connection)?;
     let safe_limit = limit.clamp(1, 500) as i64;
+    let safe_offset = offset as i64;
 
     let sql = if category.is_some() {
         "
@@ -448,22 +440,25 @@ pub fn list_indexed_files(
         FROM files
         WHERE category = ?1
         ORDER BY COALESCE(modified_unix, 0) DESC, size_bytes DESC
-        LIMIT ?2
+        LIMIT ?2 OFFSET ?3
         "
     } else {
         "
         SELECT id, absolute_path, relative_path, category, source, extension, size_bytes, modified_unix
         FROM files
         ORDER BY COALESCE(modified_unix, 0) DESC, size_bytes DESC
-        LIMIT ?1
+        LIMIT ?1 OFFSET ?2
         "
     };
 
     let mut statement = connection.prepare(sql)?;
     let rows = if let Some(category) = category {
-        statement.query_map(params![category, safe_limit], indexed_file_from_row)?
+        statement.query_map(
+            params![category, safe_limit, safe_offset],
+            indexed_file_from_row,
+        )?
     } else {
-        statement.query_map(params![safe_limit], indexed_file_from_row)?
+        statement.query_map(params![safe_limit, safe_offset], indexed_file_from_row)?
     };
 
     let mut files = Vec::new();
@@ -589,23 +584,61 @@ mod tests {
         assert_eq!(video.count, 1);
         assert_eq!(video.bytes, 5);
 
-        let files = list_indexed_files(&connection, Some("photo"), 10).unwrap();
+        let files = list_indexed_files(&connection, Some("photo"), 10, 0).unwrap();
         assert_eq!(files.len(), 1);
         assert_eq!(files[0].relative_path, "Photo/DCIM/image.jpg");
         assert_eq!(files[0].source, "DCIM");
     }
 
     #[test]
+    fn paginates_indexed_files_with_offset() {
+        let temp = tempdir().unwrap();
+        let root = temp.path().join("Multimedia");
+        fs::create_dir_all(root.join("Photo/DCIM")).unwrap();
+        fs::write(root.join("Photo/DCIM/a.jpg"), [1]).unwrap();
+        fs::write(root.join("Photo/DCIM/b.jpg"), [2]).unwrap();
+        fs::write(root.join("Photo/DCIM/c.jpg"), [3]).unwrap();
+
+        let mut connection = Connection::open_in_memory().unwrap();
+        index_multimedia(&mut connection, &root).unwrap();
+
+        let first_page = list_indexed_files(&connection, Some("photo"), 2, 0).unwrap();
+        let second_page = list_indexed_files(&connection, Some("photo"), 2, 2).unwrap();
+
+        assert_eq!(first_page.len(), 2);
+        assert_eq!(second_page.len(), 1);
+        assert_ne!(first_page[0].id, second_page[0].id);
+    }
+
+    #[test]
     fn classifies_media_by_extension_then_by_leading_folder() {
         // Extension wins, regardless of where the file sits.
-        assert_eq!(classify_media_category("Camera/IMG_1.jpg", Some("jpg")), "photo");
-        assert_eq!(classify_media_category("backup/clip.mp4", Some("mp4")), "video");
-        assert_eq!(classify_media_category("x/y/song.flac", Some("flac")), "music");
-        assert_eq!(classify_media_category("export/report.pdf", Some("pdf")), "documents");
+        assert_eq!(
+            classify_media_category("Camera/IMG_1.jpg", Some("jpg")),
+            "photo"
+        );
+        assert_eq!(
+            classify_media_category("backup/clip.mp4", Some("mp4")),
+            "video"
+        );
+        assert_eq!(
+            classify_media_category("x/y/song.flac", Some("flac")),
+            "music"
+        );
+        assert_eq!(
+            classify_media_category("export/report.pdf", Some("pdf")),
+            "documents"
+        );
         // Unknown extension falls back to a leading category folder (SmartSwitch layout).
-        assert_eq!(classify_media_category("Photo/DCIM/file.bin", Some("bin")), "photo");
+        assert_eq!(
+            classify_media_category("Photo/DCIM/file.bin", Some("bin")),
+            "photo"
+        );
         // Otherwise it is filed under `other`, never a garbage bucket.
-        assert_eq!(classify_media_category("backup/app.apk", Some("apk")), "other");
+        assert_eq!(
+            classify_media_category("backup/app.apk", Some("apk")),
+            "other"
+        );
         assert_eq!(classify_media_category("backup/data.plist", None), "other");
     }
 

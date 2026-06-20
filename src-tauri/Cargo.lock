@@ -2370,6 +2370,7 @@ dependencies = [
  "flate2",
  "hmac",
  "md-5",
+ "quick-xml",
  "rusqlite",
  "serde",
  "serde_json",

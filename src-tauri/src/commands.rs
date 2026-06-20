@@ -32,9 +32,7 @@ pub fn diagnose_adb() -> AdbDiagnostic {
 }
 
 #[tauri::command]
-pub async fn preview_device_media(
-    source_id: String,
-) -> Result<Vec<AdbMediaFolderPreview>, String> {
+pub async fn preview_device_media(source_id: String) -> Result<Vec<AdbMediaFolderPreview>, String> {
     tauri::async_runtime::spawn_blocking(move || adb::preview_device_media_by_source_id(&source_id))
         .await
         .map_err(|err| err.to_string())?
@@ -83,8 +81,9 @@ pub async fn index_multimedia(source_path: String) -> Result<IndexSummary, Strin
 pub fn list_indexed_files(
     category: Option<String>,
     limit: Option<u32>,
+    offset: Option<u32>,
 ) -> Result<Vec<IndexedFile>, String> {
-    db::list_default_indexed_files(category, limit).map_err(|err| err.to_string())
+    db::list_default_indexed_files(category, limit, offset).map_err(|err| err.to_string())
 }
 
 #[tauri::command]

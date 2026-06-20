@@ -64,7 +64,7 @@ export default function Sync() {
   const [backupCoverage, setBackupCoverage] = useState<BackupCoverage[]>([]);
   const [progress, setProgress] = useState<{ processedFiles: number; totalFiles: number; currentPath: string } | null>(null);
   const [syncProgress, setSyncProgress] = useState<{ copiedFiles: number; skippedFiles: number; currentPath: string } | null>(null);
-  const [adbPullProgress, setAdbPullProgress] = useState<{ pulledPaths: number; skippedPaths: number; pulledFiles: number; skippedFiles: number; totalFiles: number; currentPath: string } | null>(null);
+  const [adbPullProgress, setAdbPullProgress] = useState<{ pulledPaths: number; skippedPaths: number; pulledFiles: number; skippedFiles: number; permissionDeniedFiles: number; totalFiles: number; currentPath: string } | null>(null);
   const [status, setStatus] = useState("Ready");
   const [statusTone, setStatusTone] = useState<StatusTone>("info");
   const [showAdvancedTools, setShowAdvancedTools] = useState(false);
@@ -133,7 +133,7 @@ export default function Sync() {
         };
       }
     });
-    listen<{ pulledPaths: number; skippedPaths: number; pulledFiles: number; skippedFiles: number; totalFiles: number; currentPath: string }>("adb-pull-progress", (event) => {
+    listen<{ pulledPaths: number; skippedPaths: number; pulledFiles: number; skippedFiles: number; permissionDeniedFiles: number; totalFiles: number; currentPath: string }>("adb-pull-progress", (event) => {
       if (!cancelled) {
         setAdbPullProgress(event.payload);
       }
@@ -678,6 +678,7 @@ export default function Sync() {
           <div className="summaryBox">
             <strong>{formatCount(adbPullResult.pulledFiles)} files pulled · {formatCount(adbPullResult.skippedFiles)} skipped</strong>
             <span>{formatCount(adbPullResult.pulledPaths)} paths scanned · {formatCount(adbPullResult.totalFiles)} files discovered</span>
+            {adbPullResult.permissionDeniedFiles > 0 && <span>{formatCount(adbPullResult.permissionDeniedFiles)} permission-denied path(s) skipped by Android</span>}
             <span>Staging source: {adbPullResult.sourcePath}</span>
             {adbPullResult.errors.length > 0 && <small>{adbPullResult.errors.length} warning(s): {adbPullResult.errors[0]}</small>}
           </div>
@@ -686,6 +687,7 @@ export default function Sync() {
           <div className="summaryBox">
             <strong>{formatCount(adbPullProgress.pulledFiles)} / {formatCount(adbPullProgress.totalFiles)} files pulled</strong>
             <span>{formatCount(adbPullProgress.pulledPaths)} paths done · {formatCount(adbPullProgress.skippedPaths)} paths skipped</span>
+            {adbPullProgress.permissionDeniedFiles > 0 && <span>{formatCount(adbPullProgress.permissionDeniedFiles)} permission-denied path(s) skipped</span>}
             <span>{adbPullProgress.currentPath}</span>
           </div>
         )}

@@ -21,18 +21,25 @@ interface GalleryProps {
 }
 
 export default function Gallery({ onImport }: GalleryProps) {
+  const pageSize = 120;
   const [activeCategory, setActiveCategory] = useState<string | undefined>();
   const [files, setFiles] = useState<IndexedFile[]>([]);
+  const [offset, setOffset] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [status, setStatus] = useState("Loading indexed files...");
 
   useEffect(() => {
     let cancelled = false;
+    setOffset(0);
     setStatus("Loading indexed files...");
 
-    listIndexedFiles(activeCategory, 120)
+    listIndexedFiles(activeCategory, pageSize, 0)
       .then((nextFiles) => {
         if (!cancelled) {
           setFiles(nextFiles);
+          setOffset(nextFiles.length);
+          setHasMore(nextFiles.length === pageSize);
           setStatus(nextFiles.length === 0 ? "No files in this view yet." : "Ready");
         }
       })
@@ -46,6 +53,21 @@ export default function Gallery({ onImport }: GalleryProps) {
       cancelled = true;
     };
   }, [activeCategory]);
+
+  async function loadMore() {
+    setLoadingMore(true);
+    try {
+      const nextFiles = await listIndexedFiles(activeCategory, pageSize, offset);
+      setFiles((current) => [...current, ...nextFiles]);
+      setOffset((current) => current + nextFiles.length);
+      setHasMore(nextFiles.length === pageSize);
+      setStatus("Ready");
+    } catch (cause) {
+      setStatus(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setLoadingMore(false);
+    }
+  }
 
   return (
     <section>
@@ -86,6 +108,13 @@ export default function Gallery({ onImport }: GalleryProps) {
               <small>{file.source} · {formatBytes(file.sizeBytes)}</small>
             </article>
           ))}
+        </div>
+      )}
+      {files.length > 0 && hasMore && (
+        <div className="syncActions">
+          <button className="pill" disabled={loadingMore} onClick={() => void loadMore()} type="button">
+            {loadingMore ? "Loading..." : "Load more"}
+          </button>
         </div>
       )}
     </section>

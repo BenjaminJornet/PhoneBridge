@@ -1,5 +1,5 @@
+use crate::path_utils::expand_home;
 use serde::{Deserialize, Serialize};
-use std::env;
 use std::fs;
 use std::fs::File;
 use std::path::{Path, PathBuf};
@@ -185,23 +185,6 @@ fn destination_category_for_source(category_source: &Path, fallback: &str) -> St
         .iter()
         .find_map(|(label, category)| (*label == source_name).then(|| category.to_string()))
         .unwrap_or_else(|| fallback.to_string())
-}
-
-fn expand_home(path: &str) -> PathBuf {
-    if path == "~" {
-        return env::var_os("HOME")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from(path));
-    }
-
-    if let Some(rest) = path.strip_prefix("~/") {
-        return env::var_os("HOME")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join(rest);
-    }
-
-    PathBuf::from(path)
 }
 
 fn sync_category(

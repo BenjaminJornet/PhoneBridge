@@ -19,7 +19,7 @@ full provenance so you can safely purge the old backups.
 ![Local-first](https://img.shields.io/badge/data-100%25%20local-10B981)
 ![Status](https://img.shields.io/badge/status-alpha-F59E0B)
 
-<img src="docs/brand/hero-mockup.svg" width="860" alt="PhoneBridge — target UI mockup" />
+<img src="docs/brand/screenshots/packaged-guided-import.png" width="860" alt="PhoneBridge packaged app guided import flow" />
 
 </div>
 
