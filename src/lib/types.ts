@@ -109,6 +109,15 @@ export interface SmartSwitchSyncResult {
   errors: string[];
 }
 
+export interface AdbMediaFolderPreview {
+  key: string;
+  label: string;
+  remotePath: string;
+  fileCount: number;
+  totalBytes: number;
+  available: boolean;
+}
+
 export interface AdbPullResult {
   sourcePath: string;
   pulledPaths: number;

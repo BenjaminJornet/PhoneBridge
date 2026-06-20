@@ -10,6 +10,7 @@ import {
   indexMultimedia,
   listBackupCoverage,
   planConsolidation,
+  previewDeviceMedia,
   pullFromDevice,
   runSmartSwitchSync,
   runConsolidation,
@@ -22,6 +23,7 @@ import type {
   BackupSource,
   AdapterDefinition,
   AdbDiagnostic,
+  AdbMediaFolderPreview,
   AdbPullResult,
   ConsolidationPlan,
   ConsolidationResult,
@@ -55,6 +57,8 @@ export default function Sync() {
   const [syncResult, setSyncResult] = useState<SmartSwitchSyncResult | null>(null);
   const [adbPullResult, setAdbPullResult] = useState<AdbPullResult | null>(null);
   const [adbDiagnostic, setAdbDiagnostic] = useState<AdbDiagnostic | null>(null);
+  const [mediaPreview, setMediaPreview] = useState<AdbMediaFolderPreview[] | null>(null);
+  const [selectedPullKeys, setSelectedPullKeys] = useState<string[]>([]);
   const [consolidationPlan, setConsolidationPlan] = useState<ConsolidationPlan | null>(null);
   const [consolidationResult, setConsolidationResult] = useState<ConsolidationResult | null>(null);
   const [backupCoverage, setBackupCoverage] = useState<BackupCoverage[]>([]);
@@ -237,10 +241,50 @@ export default function Sync() {
     }
   }
 
+  async function handlePreviewDeviceMedia() {
+    const selectedSource = sources.find((source) => source.id === selectedSourceId);
+    if (!selectedSource || selectedSource.adapter !== "adb-generic") {
+      setStatus("Select an authorized ADB device first.");
+      return;
+    }
+
+    setBusyAction("adb-preview");
+    setStatus("Measuring media on the phone (read-only)...");
+    setStatusTone("info");
+    try {
+      const preview = await previewDeviceMedia(selectedSource.id);
+      setMediaPreview(preview);
+      setSelectedPullKeys(preview.filter((folder) => folder.available).map((folder) => folder.key));
+      const total = preview.reduce((sum, folder) => sum + folder.totalBytes, 0);
+      setStatus(`Found ${formatBytes(total)} across ${preview.filter((f) => f.available).length} folders. Pick what to copy.`);
+      setStatusTone("success");
+    } catch (cause) {
+      setStatus(cause instanceof Error ? cause.message : String(cause));
+      setStatusTone("error");
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  function togglePullKey(key: string) {
+    setSelectedPullKeys((current) =>
+      current.includes(key) ? current.filter((item) => item !== key) : [...current, key],
+    );
+  }
+
   async function handlePullFromDevice() {
     const selectedSource = sources.find((source) => source.id === selectedSourceId);
     if (!selectedSource || selectedSource.adapter !== "adb-generic") {
       setStatus("Select an authorized ADB device before pulling media.");
+      return;
+    }
+
+    // A selection is only enforced once the user has previewed; before that we keep the
+    // legacy behaviour (pull everything) so the primary button still works.
+    const keys = mediaPreview ? selectedPullKeys : undefined;
+    if (mediaPreview && keys && keys.length === 0) {
+      setStatus("Select at least one folder to copy.");
+      setStatusTone("warning");
       return;
     }
 
@@ -250,7 +294,7 @@ export default function Sync() {
     setAdbPullResult(null);
     setAdbPullProgress(null);
     try {
-      const result = await pullFromDevice(selectedSource.id, "~/.phonebridge/staging");
+      const result = await pullFromDevice(selectedSource.id, "~/.phonebridge/staging", keys);
       setAdbPullResult(result);
       setAdbPullProgress(null);
       setSelectedSourcePath(result.sourcePath);
@@ -574,6 +618,40 @@ export default function Sync() {
             {adbDiagnostic.devices.map((device) => (
               <small key={device.sourceId}>{device.label} · {device.status} · {device.redactedId}</small>
             ))}
+          </div>
+        )}
+        {selectedSource?.adapter === "adb-generic" && (
+          <div className="summaryBox">
+            <strong>On-device media</strong>
+            <span>Measure first so you don&apos;t blindly copy tens of gigabytes. Then pick the folders to import.</span>
+            <div className="syncActions">
+              <button className="pill" disabled={busyAction === "adb-preview"} onClick={handlePreviewDeviceMedia} type="button">
+                {busyAction === "adb-preview" ? "Measuring..." : mediaPreview ? "Re-measure phone media" : "Preview phone media"}
+              </button>
+            </div>
+            {mediaPreview && (
+              <div className="pullFolderList">
+                {mediaPreview.map((folder) => (
+                  <label key={folder.key} className={folder.available ? "pullFolderRow" : "pullFolderRow disabledRow"}>
+                    <input
+                      type="checkbox"
+                      checked={selectedPullKeys.includes(folder.key)}
+                      disabled={!folder.available}
+                      onChange={() => togglePullKey(folder.key)}
+                    />
+                    <span>{folder.label}</span>
+                    <small>{folder.available ? `${formatCount(folder.fileCount)} files · ${formatBytes(folder.totalBytes)}` : "empty / unavailable"}</small>
+                  </label>
+                ))}
+                <small>
+                  Selected: {formatBytes(
+                    mediaPreview
+                      .filter((folder) => selectedPullKeys.includes(folder.key))
+                      .reduce((sum, folder) => sum + folder.totalBytes, 0),
+                  )}
+                </small>
+              </div>
+            )}
           </div>
         )}
         {summary && (

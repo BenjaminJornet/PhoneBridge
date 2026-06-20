@@ -1,5 +1,5 @@
 use crate::adapters::{self, AdapterDefinition, BackupSource, CategoryMetric};
-use crate::adb::{self, AdbDiagnostic, AdbPullResult};
+use crate::adb::{self, AdbDiagnostic, AdbMediaFolderPreview, AdbPullResult};
 use crate::db::{self, IndexSummary, IndexedFile};
 use crate::library::{
     self, BackupCoverage, ConsolidationConfig, ConsolidationPlan, ConsolidationResult,
@@ -32,15 +32,27 @@ pub fn diagnose_adb() -> AdbDiagnostic {
 }
 
 #[tauri::command]
+pub async fn preview_device_media(
+    source_id: String,
+) -> Result<Vec<AdbMediaFolderPreview>, String> {
+    tauri::async_runtime::spawn_blocking(move || adb::preview_device_media_by_source_id(&source_id))
+        .await
+        .map_err(|err| err.to_string())?
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
 pub async fn pull_from_device(
     window: tauri::Window,
     source_id: String,
     destination_path: String,
+    selected_keys: Option<Vec<String>>,
 ) -> Result<AdbPullResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
         adb::pull_device_media_by_source_id(
             &source_id,
             &PathBuf::from(destination_path),
+            selected_keys,
             Some(window),
         )
     })

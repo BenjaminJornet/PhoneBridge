@@ -24,6 +24,7 @@ pub fn run() {
             commands::list_backup_coverage,
             commands::list_indexed_files,
             commands::plan_consolidation,
+            commands::preview_device_media,
             commands::pull_from_device,
             commands::decrypt_whatsapp_database,
             commands::run_consolidation,

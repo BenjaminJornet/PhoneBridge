@@ -10,7 +10,7 @@ use walkdir::WalkDir;
 const APP_DIR_NAME: &str = ".phonebridge";
 const DB_FILE_NAME: &str = "phonebridge.sqlite3";
 const MULTIMEDIA_CATEGORIES: [&str; 4] = ["Photo", "Video", "Music", "Documents"];
-const CURRENT_SCHEMA_VERSION: i64 = 4;
+const CURRENT_SCHEMA_VERSION: i64 = 5;
 
 #[derive(Debug, Error)]
 pub enum DbError {
@@ -77,6 +77,9 @@ pub fn initialize(connection: &Connection) -> Result<(), DbError> {
         }
         if version < 4 {
             migrate_to_v4(connection)?;
+        }
+        if version < 5 {
+            migrate_to_v5(connection)?;
         }
     }
 
@@ -223,6 +226,37 @@ fn migrate_to_v4(connection: &Connection) -> Result<(), DbError> {
     Ok(())
 }
 
+fn migrate_to_v5(connection: &Connection) -> Result<(), DbError> {
+    // Earlier versions derived the media category from the first path segment only,
+    // so real photos/videos imported from a phone or a SmartSwitch backup were filed
+    // under garbage categories ("backup", "appdatas", ...) and never appeared in the
+    // gallery. Recompute every existing row's category from its file extension.
+    let mut rows: Vec<(i64, String, Option<String>)> = Vec::new();
+    {
+        let mut statement = connection.prepare("SELECT id, relative_path, extension FROM files")?;
+        let mapped = statement.query_map([], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, Option<String>>(2)?,
+            ))
+        })?;
+        for row in mapped {
+            rows.push(row?);
+        }
+    }
+    {
+        let mut update = connection.prepare("UPDATE files SET category = ?1 WHERE id = ?2")?;
+        for (id, relative_path, extension) in rows {
+            let category = classify_media_category(&relative_path, extension.as_deref());
+            update.execute(params![category, id])?;
+        }
+    }
+    connection.execute_batch("PRAGMA user_version = 5;")?;
+
+    Ok(())
+}
+
 pub fn index_folder(source_path: String) -> Result<IndexSummary, DbError> {
     let root = expand_home(&source_path);
     let mut connection = open_default_connection()?;
@@ -314,13 +348,13 @@ pub fn index_multimedia(connection: &mut Connection, root: &Path) -> Result<Inde
             let metadata = entry.metadata()?;
             let absolute_path = entry.path().to_string_lossy().into_owned();
             let relative_path = relative_path(root, entry.path());
-            let category = category_from_relative_path(&relative_path);
-            let source = source_from_relative_path(&relative_path);
             let extension = entry
                 .path()
                 .extension()
                 .and_then(|value| value.to_str())
                 .map(|value| value.to_ascii_lowercase());
+            let category = classify_media_category(&relative_path, extension.as_deref());
+            let source = source_from_relative_path(&relative_path);
             let modified_unix = metadata
                 .modified()
                 .ok()
@@ -476,6 +510,37 @@ fn category_from_relative_path(path: &str) -> String {
         .to_ascii_lowercase()
 }
 
+/// Map a file extension to one of the gallery's media buckets.
+fn media_category_for_extension(extension: &str) -> Option<&'static str> {
+    match extension {
+        "jpg" | "jpeg" | "png" | "gif" | "bmp" | "webp" | "heic" | "heif" | "tif" | "tiff"
+        | "dng" | "raw" | "cr2" | "nef" | "arw" | "rw2" | "orf" | "svg" => Some("photo"),
+        "mp4" | "mov" | "m4v" | "mkv" | "avi" | "webm" | "3gp" | "3gpp" | "mpg" | "mpeg"
+        | "wmv" | "flv" | "ts" | "m2ts" => Some("video"),
+        "mp3" | "m4a" | "aac" | "flac" | "wav" | "ogg" | "oga" | "opus" | "wma" | "amr"
+        | "aiff" | "aif" | "mid" | "midi" => Some("music"),
+        "pdf" | "doc" | "docx" | "xls" | "xlsx" | "ppt" | "pptx" | "txt" | "rtf" | "odt"
+        | "ods" | "odp" | "csv" | "md" | "epub" | "pages" | "numbers" | "key" => Some("documents"),
+        _ => None,
+    }
+}
+
+/// Classify an indexed file into a gallery bucket (`photo`/`video`/`music`/`documents`),
+/// extension first, then falling back to a leading `Photo/`, `Video/`, ... folder
+/// (the layout produced by the SmartSwitch category sync). Anything else is `other`.
+pub fn classify_media_category(relative_path: &str, extension: Option<&str>) -> String {
+    if let Some(extension) = extension {
+        if let Some(category) = media_category_for_extension(&extension.to_ascii_lowercase()) {
+            return category.to_string();
+        }
+    }
+
+    match category_from_relative_path(relative_path).as_str() {
+        leading @ ("photo" | "video" | "music" | "documents") => leading.to_string(),
+        _ => "other".to_string(),
+    }
+}
+
 fn source_from_relative_path(path: &str) -> String {
     let mut parts = path.split(std::path::MAIN_SEPARATOR);
     let _category = parts.next();
@@ -528,6 +593,20 @@ mod tests {
         assert_eq!(files.len(), 1);
         assert_eq!(files[0].relative_path, "Photo/DCIM/image.jpg");
         assert_eq!(files[0].source, "DCIM");
+    }
+
+    #[test]
+    fn classifies_media_by_extension_then_by_leading_folder() {
+        // Extension wins, regardless of where the file sits.
+        assert_eq!(classify_media_category("Camera/IMG_1.jpg", Some("jpg")), "photo");
+        assert_eq!(classify_media_category("backup/clip.mp4", Some("mp4")), "video");
+        assert_eq!(classify_media_category("x/y/song.flac", Some("flac")), "music");
+        assert_eq!(classify_media_category("export/report.pdf", Some("pdf")), "documents");
+        // Unknown extension falls back to a leading category folder (SmartSwitch layout).
+        assert_eq!(classify_media_category("Photo/DCIM/file.bin", Some("bin")), "photo");
+        // Otherwise it is filed under `other`, never a garbage bucket.
+        assert_eq!(classify_media_category("backup/app.apk", Some("apk")), "other");
+        assert_eq!(classify_media_category("backup/data.plist", None), "other");
     }
 
     #[test]

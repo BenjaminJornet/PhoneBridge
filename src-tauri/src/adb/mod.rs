@@ -33,6 +33,17 @@ pub struct AdbPullProgress {
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct AdbMediaFolderPreview {
+    pub key: String,
+    pub label: String,
+    pub remote_path: String,
+    pub file_count: u64,
+    pub total_bytes: u64,
+    pub available: bool,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AdbPullResult {
     pub source_path: String,
     pub pulled_paths: u64,
@@ -210,14 +221,71 @@ pub fn diagnose_adb() -> AdbDiagnostic {
     }
 }
 
+pub fn preview_device_media_by_source_id(
+    source_id: &str,
+) -> Result<Vec<AdbMediaFolderPreview>, AdapterError> {
+    let serial = resolve_serial_for_source_id(source_id)?;
+    let previews = ADB_MEDIA_PATHS
+        .iter()
+        .map(|(label, remote_path)| {
+            let file_count = adb_shell_count(&serial, remote_path);
+            let total_bytes = adb_shell_size_bytes(&serial, remote_path);
+            AdbMediaFolderPreview {
+                key: (*label).to_string(),
+                label: (*label).to_string(),
+                remote_path: (*remote_path).to_string(),
+                file_count,
+                total_bytes,
+                available: file_count > 0,
+            }
+        })
+        .collect();
+    Ok(previews)
+}
+
+/// Count regular files under a remote path, ignoring permission errors. Best effort:
+/// returns 0 when the path is missing or unreadable rather than failing the whole preview.
+fn adb_shell_count(serial: &str, remote_path: &str) -> u64 {
+    let command = format!("find '{remote_path}' -type f 2>/dev/null | wc -l");
+    adb_shell_capture(serial, &command)
+        .trim()
+        .parse()
+        .unwrap_or(0)
+}
+
+/// Total size in bytes of a remote path (`du -sk` reports kibibytes), best effort.
+fn adb_shell_size_bytes(serial: &str, remote_path: &str) -> u64 {
+    let command = format!("du -sk '{remote_path}' 2>/dev/null | tail -1");
+    let kib: u64 = adb_shell_capture(serial, &command)
+        .split_whitespace()
+        .next()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(0);
+    kib.saturating_mul(1024)
+}
+
+/// Run `adb -s <serial> shell <command>` and return stdout, tolerating non-zero exits
+/// (find/du report failures for unreadable subtrees we deliberately skip).
+fn adb_shell_capture(serial: &str, command: &str) -> String {
+    let Ok(adb) = resolve_adb_command() else {
+        return String::new();
+    };
+    Command::new(adb)
+        .args(["-s", serial, "shell", command])
+        .output()
+        .map(|output| String::from_utf8_lossy(&output.stdout).into_owned())
+        .unwrap_or_default()
+}
+
 pub fn pull_device_media_by_source_id(
     source_id: &str,
     staging_root: &Path,
+    selected_keys: Option<Vec<String>>,
     window: Option<Window>,
 ) -> Result<AdbPullResult, AdapterError> {
     let serial = resolve_serial_for_source_id(source_id)?;
     let source_path = staging_root.join(source_id);
-    pull_device_media(&serial, &source_path, window)
+    pull_device_media(&serial, &source_path, selected_keys.as_deref(), window)
 }
 
 fn resolve_serial_for_source_id(source_id: &str) -> Result<String, AdapterError> {
@@ -242,6 +310,7 @@ fn resolve_serial_for_source_id(source_id: &str) -> Result<String, AdapterError>
 pub fn pull_device_media(
     serial: &str,
     source_path: &Path,
+    selected_keys: Option<&[String]>,
     window: Option<Window>,
 ) -> Result<AdbPullResult, AdapterError> {
     fs::create_dir_all(source_path)?;
@@ -256,6 +325,14 @@ pub fn pull_device_media(
     };
 
     for (label, remote_path) in ADB_MEDIA_PATHS {
+        // When a selection is provided, only pull the chosen folders (avoids a blind
+        // multi-gigabyte copy of every default media path).
+        if let Some(keys) = selected_keys {
+            if !keys.iter().any(|key| key == label) {
+                continue;
+            }
+        }
+
         if let Ok(files) = list_remote_files(serial, remote_path) {
             result.total_files += files.len() as u64;
             let local_root = source_path.join(label);

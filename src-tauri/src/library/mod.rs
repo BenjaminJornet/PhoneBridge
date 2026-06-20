@@ -266,6 +266,13 @@ fn execute_consolidation_with_connection(
             Err(cause) => errors.push(cause.to_string()),
         }
 
+        // Index the deduplicated content object so it shows up in the gallery and
+        // counts towards the dashboard category metrics. Without this the import
+        // populated the content store but stayed invisible to the user.
+        if let Err(cause) = index_imported_file(&transaction, &destination_path, &hashed, &config.label) {
+            errors.push(cause.to_string());
+        }
+
         if let Some(window) = &window {
             let _ = window.emit(
                 "consolidation-progress",
@@ -296,6 +303,58 @@ fn execute_consolidation_with_connection(
         errors,
         run_id,
     })
+}
+
+/// Record the imported (deduplicated) content object in the `files` index that the
+/// gallery and dashboard read. Keyed by the content-store path, so identical content
+/// imported from several sources collapses to a single library entry.
+fn index_imported_file(
+    transaction: &rusqlite::Transaction<'_>,
+    root_path: &Path,
+    file: &HashedFile,
+    source_label: &str,
+) -> Result<(), LibraryError> {
+    // For duplicates the file already lives at the path recorded in `contents`
+    // (which may differ from `file.storage_path` when the destination changed).
+    // Always resolve the canonical location so the Gallery can serve the image.
+    let actual_storage_path: String = transaction
+        .query_row(
+            "SELECT storage_path FROM contents WHERE hash = ?1",
+            params![file.hash],
+            |row| row.get(0),
+        )
+        .unwrap_or_else(|_| file.storage_path.to_string_lossy().into_owned());
+
+    let category =
+        db::classify_media_category(&file.source.relative_path, file.source.extension.as_deref());
+    transaction.execute(
+        "
+        INSERT INTO files (
+          root_path, absolute_path, relative_path, category, source,
+          extension, size_bytes, modified_unix, indexed_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, CURRENT_TIMESTAMP)
+        ON CONFLICT(absolute_path) DO UPDATE SET
+          root_path = excluded.root_path,
+          relative_path = excluded.relative_path,
+          category = excluded.category,
+          source = excluded.source,
+          extension = excluded.extension,
+          size_bytes = excluded.size_bytes,
+          modified_unix = excluded.modified_unix,
+          indexed_at = CURRENT_TIMESTAMP
+        ",
+        params![
+            root_path.to_string_lossy(),
+            actual_storage_path,
+            file.source.relative_path,
+            category,
+            source_label,
+            file.source.extension,
+            file.source.size_bytes as i64,
+            file.source.modified_unix,
+        ],
+    )?;
+    Ok(())
 }
 
 fn insert_manifest_entry(
@@ -652,5 +711,17 @@ mod tests {
         assert!(backup.safe_to_delete);
         assert_eq!(backup.total_files, 3);
         assert_eq!(backup.covered_files, 3);
+
+        // Imported media must land in the gallery index, deduplicated and categorized.
+        let metrics = db::category_metrics(&connection).unwrap();
+        let photos = metrics.iter().find(|item| item.category == "photo").unwrap();
+        // a.jpg and b.jpg share content (one object), c.jpg is a second object → 2 photos.
+        assert_eq!(photos.count, 2);
+
+        let gallery = db::list_indexed_files(&connection, Some("photo"), 10).unwrap();
+        assert_eq!(gallery.len(), 2);
+        assert!(gallery
+            .iter()
+            .all(|file| file.absolute_path.contains("objects")));
     }
 }

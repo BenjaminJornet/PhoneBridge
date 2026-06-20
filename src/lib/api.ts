@@ -3,6 +3,7 @@ import type {
   BackupSource,
   BackupCoverage,
   AdbDiagnostic,
+  AdbMediaFolderPreview,
   AdbPullResult,
   AdapterDefinition,
   CategoryMetric,
@@ -58,7 +59,15 @@ export function diagnoseAdb(): Promise<AdbDiagnostic> {
   });
 }
 
-export function pullFromDevice(sourceId: string, destinationPath: string): Promise<AdbPullResult> {
+export function previewDeviceMedia(sourceId: string): Promise<AdbMediaFolderPreview[]> {
+  return invokeIfAvailable("preview_device_media", [], { sourceId });
+}
+
+export function pullFromDevice(
+  sourceId: string,
+  destinationPath: string,
+  selectedKeys?: string[],
+): Promise<AdbPullResult> {
   return invokeIfAvailable("pull_from_device", {
     sourcePath: destinationPath,
     pulledPaths: 0,
@@ -67,7 +76,7 @@ export function pullFromDevice(sourceId: string, destinationPath: string): Promi
     skippedFiles: 0,
     totalFiles: 0,
     errors: [],
-  }, { sourceId, destinationPath });
+  }, { sourceId, destinationPath, selectedKeys });
 }
 
 export function decryptWhatsAppDatabase(config: WhatsAppDecryptConfig): Promise<WhatsAppDecryptResult> {
