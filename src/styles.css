@@ -241,6 +241,17 @@ button {
   max-width: 900px;
 }
 
+.fullWidthCard {
+  grid-column: 1 / -1;
+}
+
+.brandIcon {
+  border-radius: 14px;
+  flex-shrink: 0;
+  height: 52px;
+  width: 52px;
+}
+
 .step {
   align-items: center;
   border-bottom: 1px solid var(--border-soft);

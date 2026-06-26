@@ -9,6 +9,7 @@ use crate::smartswitch::{
 };
 use crate::sync::{self, SmartSwitchCategory, SmartSwitchSyncConfig, SmartSwitchSyncResult};
 use crate::whatsapp::{self, WhatsAppDecryptConfig, WhatsAppDecryptResult};
+use crate::PullCancelToken;
 use std::path::PathBuf;
 
 #[tauri::command]
@@ -45,18 +46,27 @@ pub async fn pull_from_device(
     source_id: String,
     destination_path: String,
     selected_keys: Option<Vec<String>>,
+    cancel_token: tauri::State<'_, PullCancelToken>,
 ) -> Result<AdbPullResult, String> {
+    cancel_token.reset();
+    let token = cancel_token.arc();
     tauri::async_runtime::spawn_blocking(move || {
         adb::pull_device_media_by_source_id(
             &source_id,
             &crate::path_utils::expand_home(&destination_path),
             selected_keys,
             Some(window),
+            token,
         )
     })
     .await
     .map_err(|err| err.to_string())?
     .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+pub fn cancel_pull_from_device(cancel_token: tauri::State<'_, PullCancelToken>) {
+    cancel_token.cancel();
 }
 
 #[tauri::command]

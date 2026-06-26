@@ -78,7 +78,12 @@ export function pullFromDevice(
     permissionDeniedFiles: 0,
     totalFiles: 0,
     errors: [],
+    cancelled: false,
   }, { sourceId, destinationPath, selectedKeys });
+}
+
+export function cancelPullFromDevice(): Promise<void> {
+  return invoke("cancel_pull_from_device");
 }
 
 export function pullWhatsAppDatabase(sourceId: string, destinationDir: string): Promise<WhatsAppPullResult> {

@@ -128,6 +128,7 @@ export interface AdbPullResult {
   permissionDeniedFiles: number;
   totalFiles: number;
   errors: string[];
+  cancelled: boolean;
 }
 
 export interface AdbDiagnosticDevice {

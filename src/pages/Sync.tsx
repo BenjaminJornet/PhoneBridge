@@ -11,6 +11,7 @@ import {
   listBackupCoverage,
   planConsolidation,
   previewDeviceMedia,
+  cancelPullFromDevice,
   pullFromDevice,
   runSmartSwitchSync,
   runConsolidation,
@@ -295,8 +296,13 @@ export default function Sync({ onNavigate }: SyncProps) {
       setAdbPullResult(result);
       setAdbPullProgress(null);
       setSelectedSourcePath(result.sourcePath);
-      setStatus("Phone media copied into a temporary import folder. Preview it next.");
-      setStatusTone("success");
+      if (result.cancelled) {
+        setStatus(`Copy stopped — ${result.pulledFiles} file${result.pulledFiles === 1 ? "" : "s"} staged. You can still preview and import what was copied.`);
+        setStatusTone("warning");
+      } else {
+        setStatus("Phone media copied into a temporary import folder. Preview it next.");
+        setStatusTone("success");
+      }
     } catch (cause) {
       setStatus(cause instanceof Error ? cause.message : String(cause));
       setStatusTone("error");
@@ -530,7 +536,7 @@ export default function Sync({ onNavigate }: SyncProps) {
         title="Choose one source. Preview it. Then import safely."
         description="PhoneBridge keeps originals untouched. It copies data into your local library only after you review what will be added or deduplicated."
       />
-      <div className="card listCard">
+      <div className="card" style={{ marginTop: "18px" }}>
         <div className="wizardSteps" aria-label="Import steps">
           <div className={step === 1 ? "step activeStep" : "step"}><span>1</span><p>Choose a source</p></div>
           <div className={step === 2 ? "step activeStep" : "step"}><span>2</span><p>Get the data</p></div>
@@ -721,9 +727,13 @@ export default function Sync({ onNavigate }: SyncProps) {
               </>
             )}
             <div className="syncActions">
-              <button className="primaryButton" disabled={Boolean(busyAction) || (!selectedSourcePath && selectedSource?.adapter !== "adb-generic")} onClick={handlePrimaryAction} type="button">
-                {busyAction ? "Working..." : primaryActionLabel()}
-              </button>
+              {busyAction === "adb-pull" ? (
+                <button className="pill" onClick={() => void cancelPullFromDevice()} type="button">Stop copying</button>
+              ) : (
+                <button className="primaryButton" disabled={Boolean(busyAction) || (!selectedSourcePath && selectedSource?.adapter !== "adb-generic")} onClick={handlePrimaryAction} type="button">
+                  {busyAction ? "Working..." : primaryActionLabel()}
+                </button>
+              )}
               <button className="pill" onClick={() => setStep(1)} type="button">Back</button>
             </div>
           </>

@@ -137,7 +137,7 @@ export default function DataExplorer({ onNavigate }: DataExplorerProps) {
         description="Most data appears automatically after an import. WhatsApp is separate because encrypted databases require key material that PhoneBridge will never extract by itself."
       />
       <div className="dataGrid">
-        <article className="card dataCard">
+        <article className="card dataCard fullWidthCard">
           <span className="eyebrowText">Guided helper</span>
           <h2>WhatsApp messages</h2>
           <p>Copy the encrypted database straight from your connected phone, then provide your own key to decrypt it locally. Everything stays on this computer.</p>
@@ -171,7 +171,14 @@ export default function DataExplorer({ onNavigate }: DataExplorerProps) {
             <span>Or paste a crypt15 key</span>
             <input value={whatsAppKeyHex} onChange={(event) => setWhatsAppKeyHex(event.target.value)} placeholder="64 hexadecimal characters, optional" />
           </label>
-          <p className="mutedText">The decryption key lives in WhatsApp&apos;s private storage and can&apos;t be copied without rooting the phone — PhoneBridge never does that. You provide the key yourself (from a backup export or a rooted pull).</p>
+          <p className="mutedText">
+            The key lives in WhatsApp&apos;s private storage — it cannot be extracted via normal ADB (that would require rooting the phone, which PhoneBridge never does). You provide it yourself. How to get it:
+          </p>
+          <ul className="mutedText" style={{ margin: "4px 0 12px", paddingLeft: "20px" }}>
+            <li><strong>Rooted phone or backup:</strong> pull <code>/data/data/com.whatsapp/files/key</code> via <code>adb shell</code> with root and pick it above.</li>
+            <li><strong>crypt15 hex key:</strong> if a backup tool (e.g. WazzapMigrator) exported a 64-char hex string, paste it in the field below.</li>
+            <li><strong>crypt14:</strong> use the <code>key</code> binary file — the same file path, same key picker.</li>
+          </ul>
           <button className="pill" onClick={() => setShowWhatsAppAdvanced((current) => !current)} type="button">
             {showWhatsAppAdvanced ? "Hide advanced output" : "Show advanced output"}
           </button>

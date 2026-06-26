@@ -5,6 +5,10 @@ use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 use tauri::{Emitter, Window};
 use uuid::Uuid;
 
@@ -54,6 +58,7 @@ pub struct AdbPullResult {
     pub permission_denied_files: u64,
     pub total_files: u64,
     pub errors: Vec<String>,
+    pub cancelled: bool,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -290,10 +295,11 @@ pub fn pull_device_media_by_source_id(
     staging_root: &Path,
     selected_keys: Option<Vec<String>>,
     window: Option<Window>,
+    cancel_token: Arc<AtomicBool>,
 ) -> Result<AdbPullResult, AdapterError> {
     let serial = resolve_serial_for_source_id(source_id)?;
     let source_path = staging_root.join(source_id);
-    pull_device_media(&serial, &source_path, selected_keys.as_deref(), window)
+    pull_device_media(&serial, &source_path, selected_keys.as_deref(), window, cancel_token)
 }
 
 /// Candidate on-device locations for the WhatsApp message database, newest storage
@@ -390,6 +396,7 @@ pub fn pull_device_media(
     source_path: &Path,
     selected_keys: Option<&[String]>,
     window: Option<Window>,
+    cancel_token: Arc<AtomicBool>,
 ) -> Result<AdbPullResult, AdapterError> {
     fs::create_dir_all(source_path)?;
     let mut result = AdbPullResult {
@@ -401,9 +408,15 @@ pub fn pull_device_media(
         permission_denied_files: 0,
         total_files: 0,
         errors: Vec::new(),
+        cancelled: false,
     };
 
     for (label, remote_path) in ADB_MEDIA_PATHS {
+        if cancel_token.load(Ordering::Relaxed) {
+            result.cancelled = true;
+            break;
+        }
+
         // When a selection is provided, only pull the chosen folders (avoids a blind
         // multi-gigabyte copy of every default media path).
         if let Some(keys) = selected_keys {
@@ -417,6 +430,10 @@ pub fn pull_device_media(
             result.permission_denied_files += find_result.permission_denied_files;
             let local_root = source_path.join(label);
             for remote_file in find_result.files {
+                if cancel_token.load(Ordering::Relaxed) {
+                    result.cancelled = true;
+                    return Ok(result);
+                }
                 emit_pull_progress(window.as_ref(), &result, &remote_file);
                 match pull_remote_file(serial, remote_path, &remote_file, &local_root) {
                     Ok(()) => result.pulled_files += 1,
