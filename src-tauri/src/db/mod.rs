@@ -256,7 +256,7 @@ pub fn move_files_to_trash_with_connection(
         removed_from_index += connection.execute(
             "DELETE FROM files WHERE absolute_path = ?1",
             params![path],
-        )? as usize;
+        )?;
     }
 
     Ok(TrashResult {

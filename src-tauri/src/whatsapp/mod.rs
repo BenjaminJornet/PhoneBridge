@@ -233,7 +233,7 @@ mod tests {
     fn encrypt_fixture(plaintext: &[u8], key: &[u8; 32], iv: &[u8; 16]) -> Vec<u8> {
         let nested = encode_len_field(1, iv);
         let prefix = [
-            encode_varint((1 << 3) | 0),
+            encode_varint(1 << 3),
             encode_varint(1),
             encode_len_field(3, &nested),
         ]

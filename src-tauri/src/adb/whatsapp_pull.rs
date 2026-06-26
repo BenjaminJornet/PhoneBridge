@@ -68,7 +68,7 @@ fn pick_whatsapp_database(listing: &str) -> Option<String> {
         return None;
     }
     for preferred in ["msgstore.db.crypt15", "msgstore.db.crypt14"] {
-        if candidates.iter().any(|name| *name == preferred) {
+        if candidates.contains(&preferred) {
             return Some(preferred.to_string());
         }
     }

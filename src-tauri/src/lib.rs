@@ -24,6 +24,12 @@ pub struct PullCancelToken(pub Arc<AtomicBool>);
 /// so Escape is only intercepted while a modal is on screen. See `commands::enable_escape_capture`.
 pub struct EscapeCapture(pub Mutex<u32>);
 
+impl Default for PullCancelToken {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PullCancelToken {
     pub fn new() -> Self {
         Self(Arc::new(AtomicBool::new(false)))
