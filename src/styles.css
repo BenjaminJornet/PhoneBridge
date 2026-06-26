@@ -142,16 +142,24 @@ button {
 }
 
 .navItem {
+  align-items: center;
   background: transparent;
   border: 0;
   border-radius: 12px;
   color: var(--nav-text);
   cursor: pointer;
-  display: block;
+  display: flex;
+  gap: 12px;
   margin-bottom: 8px;
   padding: 12px 14px;
   text-align: left;
   width: 100%;
+}
+
+.navIcon {
+  align-items: center;
+  display: inline-flex;
+  flex-shrink: 0;
 }
 
 .navItem.active,
@@ -207,6 +215,7 @@ button {
   display: grid;
   gap: 18px;
   grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-bottom: 22px;
 }
 
 .card {
@@ -391,6 +400,17 @@ button {
   gap: 12px;
 }
 
+.heroSummary {
+  background: var(--surface-muted);
+  border-color: var(--primary);
+  padding: 22px;
+}
+
+.heroSummary strong {
+  font-size: 1.5rem;
+  letter-spacing: -0.02em;
+}
+
 .quickStartGrid,
 .sourceTypeGrid,
 .wizardSteps {
@@ -421,6 +441,11 @@ button {
 .quickStartCard h2,
 .sourceTypeCard strong {
   margin-top: 0;
+}
+
+.heroCard {
+  margin-bottom: 22px;
+  max-width: 900px;
 }
 
 .sourceTypeCard {
@@ -638,6 +663,88 @@ button.sourceRow:disabled {
 .pullFolderRow small {
   color: var(--text-secondary);
   white-space: nowrap;
+}
+
+.lightboxOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  background: rgba(2, 6, 23, 0.74);
+  backdrop-filter: blur(6px);
+}
+
+.lightboxPanel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  max-width: min(1100px, 92vw);
+  max-height: 90vh;
+  overflow: hidden;
+  width: 100%;
+}
+
+.lightboxStage {
+  align-items: center;
+  background: var(--media-placeholder);
+  display: flex;
+  flex: 1;
+  justify-content: center;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.lightboxStage img {
+  display: block;
+  max-height: 72vh;
+  max-width: 100%;
+  object-fit: contain;
+}
+
+.lightboxPlaceholder {
+  display: grid;
+  gap: 10px;
+  justify-items: center;
+  padding: 64px 24px;
+  text-align: center;
+}
+
+.lightboxPlaceholder strong {
+  font-size: 2rem;
+  letter-spacing: -0.02em;
+}
+
+.lightboxPlaceholder p {
+  color: var(--text-description);
+  margin: 0;
+  max-width: 340px;
+}
+
+.lightboxMeta {
+  border-top: 1px solid var(--border-soft);
+  display: grid;
+  gap: 8px;
+  padding: 18px 22px;
+}
+
+.lightboxMeta code {
+  background: var(--surface-alt);
+  border-radius: 10px;
+  color: var(--ink-soft);
+  overflow: hidden;
+  padding: 8px 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lightboxMeta small {
+  color: var(--text-secondary);
 }
 
 @media (prefers-color-scheme: dark) {

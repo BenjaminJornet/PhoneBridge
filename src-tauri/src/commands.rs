@@ -1,5 +1,5 @@
 use crate::adapters::{self, AdapterDefinition, BackupSource, CategoryMetric};
-use crate::adb::{self, AdbDiagnostic, AdbMediaFolderPreview, AdbPullResult};
+use crate::adb::{self, AdbDiagnostic, AdbMediaFolderPreview, AdbPullResult, WhatsAppPullResult};
 use crate::db::{self, IndexSummary, IndexedFile};
 use crate::library::{
     self, BackupCoverage, ConsolidationConfig, ConsolidationPlan, ConsolidationResult,
@@ -53,6 +53,20 @@ pub async fn pull_from_device(
             selected_keys,
             Some(window),
         )
+    })
+    .await
+    .map_err(|err| err.to_string())?
+    .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+pub async fn pull_whatsapp_database(
+    source_id: String,
+    destination_dir: String,
+) -> Result<WhatsAppPullResult, String> {
+    let dir = crate::path_utils::expand_home(&destination_dir);
+    tauri::async_runtime::spawn_blocking(move || {
+        adb::pull_whatsapp_database_by_source_id(&source_id, &dir)
     })
     .await
     .map_err(|err| err.to_string())?
@@ -165,6 +179,16 @@ pub fn list_backup_coverage() -> Result<Vec<BackupCoverage>, String> {
 #[tauri::command]
 pub fn open_file(path: String) -> Result<(), String> {
     std::process::Command::new("open")
+        .arg(&path)
+        .spawn()
+        .map(|_| ())
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+pub fn reveal_in_finder(path: String) -> Result<(), String> {
+    std::process::Command::new("open")
+        .arg("-R")
         .arg(&path)
         .spawn()
         .map(|_| ())

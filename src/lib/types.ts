@@ -147,6 +147,12 @@ export interface AdbDiagnostic {
   nextAction: string;
 }
 
+export interface WhatsAppPullResult {
+  localPath: string;
+  remotePath: string;
+  format: string;
+}
+
 export interface WhatsAppDecryptConfig {
   encryptedDbPath: string;
   keyPath?: string;

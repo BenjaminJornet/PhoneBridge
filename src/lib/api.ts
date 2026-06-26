@@ -20,6 +20,7 @@ import type {
   StructuredRecord,
   WhatsAppDecryptConfig,
   WhatsAppDecryptResult,
+  WhatsAppPullResult,
 } from "./types";
 
 function hasTauriRuntime(): boolean {
@@ -78,6 +79,14 @@ export function pullFromDevice(
     totalFiles: 0,
     errors: [],
   }, { sourceId, destinationPath, selectedKeys });
+}
+
+export function pullWhatsAppDatabase(sourceId: string, destinationDir: string): Promise<WhatsAppPullResult> {
+  return invokeIfAvailable("pull_whatsapp_database", {
+    localPath: "",
+    remotePath: "",
+    format: "",
+  }, { sourceId, destinationDir });
 }
 
 export function decryptWhatsAppDatabase(config: WhatsAppDecryptConfig): Promise<WhatsAppDecryptResult> {
@@ -168,6 +177,10 @@ export function runConsolidation(config: ConsolidationConfig): Promise<Consolida
 
 export async function openFile(path: string): Promise<void> {
   return invokeIfAvailable("open_file", undefined, { path });
+}
+
+export async function revealInFinder(path: string): Promise<void> {
+  return invokeIfAvailable("reveal_in_finder", undefined, { path });
 }
 
 export function listBackupCoverage(): Promise<BackupCoverage[]> {

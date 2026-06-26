@@ -33,14 +33,6 @@ import type {
 } from "../lib/types";
 import type { StatusTone } from "../lib/ux";
 
-const syncSteps = [
-  "Detect connected Android devices via ADB",
-  "Scan Samsung SmartSwitch backups from local folders",
-  "Plan category imports without overwriting existing files",
-  "Index recovered data into SQLite",
-  "Generate thumbnails and searchable metadata",
-];
-
 function hasTauriRuntime(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
@@ -73,6 +65,7 @@ export default function Sync({ onNavigate }: SyncProps) {
   const [statusTone, setStatusTone] = useState<StatusTone>("info");
   const [showAdvancedTools, setShowAdvancedTools] = useState(false);
   const [busyAction, setBusyAction] = useState<string | null>(null);
+  const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
 
   useEffect(() => {
     let cancelled = false;
@@ -329,6 +322,7 @@ export default function Sync({ onNavigate }: SyncProps) {
     setSelectedSourcePath(source.path ?? "");
     setConsolidationPlan(null);
     setConsolidationResult(null);
+    setStep(2);
   }
 
   function adapterLabel(adapterId: string) {
@@ -349,6 +343,7 @@ export default function Sync({ onNavigate }: SyncProps) {
     try {
       const plan = await planConsolidation(consolidationConfig());
       setConsolidationPlan(plan);
+      setStep(3);
       setStatus("Preview ready. Review the numbers, then import when you are ready.");
       setStatusTone("success");
     } catch (cause) {
@@ -376,6 +371,7 @@ export default function Sync({ onNavigate }: SyncProps) {
       setConsolidationPlan(result.plan);
       setBackupCoverage(await listBackupCoverage());
       setProgress(null);
+      setStep(4);
       setStatus("Import complete. Your originals were left untouched.");
       setStatusTone("success");
     } catch (cause) {
@@ -502,9 +498,6 @@ export default function Sync({ onNavigate }: SyncProps) {
   const selectedSource = sources.find((source) => source.id === selectedSourceId || source.path === selectedSourcePath);
   const adbSources = sources.filter((source) => source.adapter === "adb-generic");
   const backupSources = sources.filter((source) => source.path);
-  const canPreview = Boolean(selectedSourcePath);
-  const canImport = Boolean(consolidationPlan && selectedSourcePath);
-
   async function handlePrimaryAction() {
     if (selectedSource?.adapter === "adb-generic" && !selectedSourcePath) {
       await handlePullFromDevice();
@@ -539,282 +532,323 @@ export default function Sync({ onNavigate }: SyncProps) {
       />
       <div className="card listCard">
         <div className="wizardSteps" aria-label="Import steps">
-          <div className="step activeStep"><span>1</span><p>Choose a source</p></div>
-          <div className={canPreview ? "step activeStep" : "step"}><span>2</span><p>Preview the import</p></div>
-          <div className={canImport ? "step activeStep" : "step"}><span>3</span><p>Import safely</p></div>
+          <div className={step === 1 ? "step activeStep" : "step"}><span>1</span><p>Choose a source</p></div>
+          <div className={step === 2 ? "step activeStep" : "step"}><span>2</span><p>Get the data</p></div>
+          <div className={step === 3 ? "step activeStep" : "step"}><span>3</span><p>Preview</p></div>
+          <div className={step === 4 ? "step activeStep" : "step"}><span>4</span><p>Done</p></div>
         </div>
         <StatusCallout title="Import status" message={status} tone={statusTone} />
-        {consolidationPlan && !consolidationResult && (
-          <div className="summaryBox">
-            <strong>{formatCount(consolidationPlan.newFiles)} new · {formatCount(consolidationPlan.duplicateFiles)} duplicates</strong>
-            <span>{formatBytes(consolidationPlan.newBytes)} new · {formatBytes(consolidationPlan.duplicateBytes)} already covered</span>
-          </div>
-        )}
-        <h2>Pick what you want to import</h2>
-        <div className="sourceTypeGrid">
-          <button
-            className={selectedSource?.adapter === "adb-generic" ? "sourceTypeCard selectedSource" : "sourceTypeCard"}
-            onClick={() => {
-              if (adbSources[0]) {
-                selectSource(adbSources[0]);
-                setStatus("Android phone selected. Click Copy media from phone when you are ready.");
-                setStatusTone("success");
-              } else {
-                void refreshAdb();
-              }
-            }}
-            type="button"
-          >
-            <strong>Android phone</strong>
-            <span>{adbSources.length > 0 ? `${adbSources[0].label} ready` : "Check USB / ADB connection"}</span>
-            <small>Copies common media folders into a temporary local import folder.</small>
-          </button>
-          <button
-            className={selectedSource?.adapter === "samsung-smartswitch" ? "sourceTypeCard selectedSource" : "sourceTypeCard"}
-            onClick={() => {
-              const smartSwitch = backupSources.find((source) => source.adapter === "samsung-smartswitch");
-              if (smartSwitch) {
-                selectSource(smartSwitch);
-                setStatus("SmartSwitch backup selected. Preview the import next.");
-                setStatusTone("success");
-              } else {
-                void chooseSmartSwitchFolder();
-              }
-            }}
-            type="button"
-          >
-            <strong>SmartSwitch backup</strong>
-            <span>{backupSources.some((source) => source.adapter === "samsung-smartswitch") ? "Backup ready" : "Choose backup folder"}</span>
-            <small>Reads media and structured backup categories when available.</small>
-          </button>
-          <button className={!selectedSourceId && selectedSourcePath ? "sourceTypeCard selectedSource" : "sourceTypeCard"} onClick={chooseSourceFolder} type="button">
-            <strong>Any folder</strong>
-            <span>Photos, videos, music, documents</span>
-            <small>Best for exports, copied phone folders, or external drives.</small>
-          </button>
-        </div>
-        {selectedSource?.adapter !== "adb-generic" && (
-          <PathPickerField
-            buttonLabel="Choose source folder"
-            description="Only needed when PhoneBridge did not detect your backup automatically."
-            label="Selected source"
-            onChange={setSelectedSourcePath}
-            onChoose={chooseSourceFolder}
-            value={selectedSourcePath}
-          />
-        )}
-        <PathPickerField
-          buttonLabel="Choose library folder"
-          description="Where PhoneBridge stores deduplicated copies. Originals stay where they are."
-          label="PhoneBridge library"
-          onChange={setDestinationPath}
-          onChoose={chooseDestinationFolder}
-          value={destinationPath}
-        />
-        <div className="syncActions">
-          <button className="primaryButton" disabled={Boolean(busyAction) || (!selectedSourcePath && selectedSource?.adapter !== "adb-generic")} onClick={handlePrimaryAction} type="button">
-            {busyAction ? "Working..." : primaryActionLabel()}
-          </button>
-          <button className="pill" disabled={busyAction === "adb-refresh"} onClick={refreshAdb} type="button">
-            {busyAction === "adb-refresh" ? "Checking devices..." : "Refresh Android devices"}
-          </button>
-          {consolidationPlan && (
-            <button className="pill" onClick={() => setConsolidationPlan(null)} type="button">Preview again</button>
-          )}
-        </div>
-        {adbDiagnostic && (
-          <div className="summaryBox">
-            <strong>{adbDiagnostic.message}</strong>
-            <span>{adbDiagnostic.nextAction}</span>
-            {adbDiagnostic.adbPath && <small>ADB: {adbDiagnostic.adbPath}</small>}
-            {adbDiagnostic.devices.map((device) => (
-              <small key={device.sourceId}>{device.label} · {device.status} · {device.redactedId}</small>
-            ))}
-          </div>
-        )}
-        {selectedSource?.adapter === "adb-generic" && (
-          <div className="summaryBox">
-            <strong>On-device media</strong>
-            <span>Measure first so you don&apos;t blindly copy tens of gigabytes. Then pick the folders to import.</span>
-            <div className="syncActions">
-              <button className="pill" disabled={busyAction === "adb-preview"} onClick={handlePreviewDeviceMedia} type="button">
-                {busyAction === "adb-preview" ? "Measuring..." : mediaPreview ? "Re-measure phone media" : "Preview phone media"}
-              </button>
-            </div>
-            {mediaPreview && (
-              <div className="pullFolderList">
-                {mediaPreview.map((folder) => (
-                  <label key={folder.key} className={folder.available ? "pullFolderRow" : "pullFolderRow disabledRow"}>
-                    <input
-                      type="checkbox"
-                      checked={selectedPullKeys.includes(folder.key)}
-                      disabled={!folder.available}
-                      onChange={() => togglePullKey(folder.key)}
-                    />
-                    <span>{folder.label}</span>
-                    <small>{folder.available ? `${formatCount(folder.fileCount)} files · ${formatBytes(folder.totalBytes)}` : "empty / unavailable"}</small>
-                  </label>
-                ))}
-                <small>
-                  Selected: {formatBytes(
-                    mediaPreview
-                      .filter((folder) => selectedPullKeys.includes(folder.key))
-                      .reduce((sum, folder) => sum + folder.totalBytes, 0),
-                  )}
-                </small>
-              </div>
-            )}
-          </div>
-        )}
-        {summary && (
-          <div className="summaryBox">
-            <strong>{formatCount(summary.scannedFiles)} files indexed</strong>
-            <span>{formatBytes(summary.totalBytes)} scanned from {summary.rootPath}</span>
-            <small>SQLite: {summary.databasePath}</small>
-          </div>
-        )}
-        {syncResult && (
-          <div className="summaryBox">
-            <strong>{formatCount(syncResult.copiedFiles)} copied · {formatCount(syncResult.skippedFiles)} skipped</strong>
-            <span>{formatBytes(syncResult.copiedBytes)} copied · {formatBytes(syncResult.skippedBytes)} skipped</span>
-            {syncResult.errors.length > 0 && <small>{syncResult.errors.length} warning(s): {syncResult.errors[0]}</small>}
-          </div>
-        )}
-        {syncProgress && (
-          <div className="summaryBox">
-            <strong>{formatCount(syncProgress.copiedFiles)} copied · {formatCount(syncProgress.skippedFiles)} skipped</strong>
-            <span>{syncProgress.currentPath}</span>
-          </div>
-        )}
-        {adbPullResult && (
-          <div className="summaryBox">
-            <strong>{formatCount(adbPullResult.pulledFiles)} files pulled · {formatCount(adbPullResult.skippedFiles)} skipped</strong>
-            <span>{formatCount(adbPullResult.pulledPaths)} paths scanned · {formatCount(adbPullResult.totalFiles)} files discovered</span>
-            {adbPullResult.permissionDeniedFiles > 0 && <span>{formatCount(adbPullResult.permissionDeniedFiles)} permission-denied path(s) skipped by Android</span>}
-            <span>Staging source: {adbPullResult.sourcePath}</span>
-            {adbPullResult.errors.length > 0 && <small>{adbPullResult.errors.length} warning(s): {adbPullResult.errors[0]}</small>}
-          </div>
-        )}
-        {adbPullProgress && (
-          <div className="summaryBox">
-            <strong>{formatCount(adbPullProgress.pulledFiles)} / {formatCount(adbPullProgress.totalFiles)} files pulled</strong>
-            <span>{formatCount(adbPullProgress.pulledPaths)} paths done · {formatCount(adbPullProgress.skippedPaths)} paths skipped</span>
-            {adbPullProgress.permissionDeniedFiles > 0 && <span>{formatCount(adbPullProgress.permissionDeniedFiles)} permission-denied path(s) skipped</span>}
-            <span>{adbPullProgress.currentPath}</span>
-          </div>
-        )}
-        {consolidationResult && (
-          <div className="summaryBox">
-            <strong>
-              {consolidationResult.copiedFiles > 0
-                ? `${formatCount(consolidationResult.copiedFiles)} files added`
-                : "No new files — all already covered"}
-              {consolidationResult.occurrencesRecorded > consolidationResult.copiedFiles
-                ? ` · ${formatCount(consolidationResult.occurrencesRecorded - consolidationResult.copiedFiles)} already had a copy`
-                : ""}
-            </strong>
-            {consolidationResult.errors.length > 0 && (
-              <small>{consolidationResult.errors.length} warning(s): {consolidationResult.errors[0]}</small>
-            )}
-            {onNavigate && (
-              <button className="pill" onClick={() => onNavigate("gallery")} type="button">View your library →</button>
-            )}
-          </div>
-        )}
-        {progress && (
-          <div className="summaryBox">
-            <strong>{formatCount(progress.processedFiles)} / {formatCount(progress.totalFiles)} processed</strong>
-            <span>{progress.currentPath}</span>
-          </div>
-        )}
-        <h2>Detected sources</h2>
-        {sources.length === 0 ? (
-          <p>No backup source or authorized ADB device detected yet.</p>
-        ) : (
-          <div className="sourceList">
-            {sources.map((source) => (
+
+        {/* STEP 1 — Choose a source */}
+        {step === 1 && (
+          <>
+            <h2>Pick what you want to import</h2>
+            <div className="sourceTypeGrid">
               <button
-                className={source.id === selectedSourceId ? "sourceRow selectedSource" : "sourceRow"}
-                key={source.id}
-                onClick={() => selectSource(source)}
+                className={selectedSource?.adapter === "adb-generic" ? "sourceTypeCard selectedSource" : "sourceTypeCard"}
+                onClick={() => {
+                  if (adbSources[0]) {
+                    selectSource(adbSources[0]);
+                    setStatus("Android phone selected. Measure its media, then copy what you want.");
+                    setStatusTone("success");
+                  } else {
+                    void refreshAdb();
+                  }
+                }}
                 type="button"
               >
-                <strong>{source.label}</strong>
-                <span>{adapterLabel(source.adapter)}</span>
-                {source.device && (
-                  <small>
-                    {source.device.manufacturer} {source.device.model}
-                    {source.device.androidVersion ? ` · Android ${source.device.androidVersion}` : ""}
-                  </small>
-                )}
-                {source.path && <small>{source.path}</small>}
+                <strong>Android phone</strong>
+                <span>{adbSources.length > 0 ? `${adbSources[0].label} ready` : "Check USB / ADB connection"}</span>
+                <small>Copies common media folders into a temporary local import folder.</small>
               </button>
-            ))}
-          </div>
-        )}
-        {categories.length > 0 && <h2>SmartSwitch categories</h2>}
-        {categories.length > 0 && (
-        <div className="syncActions">
-          <button className="pill" onClick={selectAllCategories} type="button">Select all</button>
-          <button className="pill" onClick={() => setSelectedCategories([])} type="button">Clear</button>
-        </div>
-        )}
-        {categories.length > 0 && (
-          <div className="categoryGrid">
-            {categories.map((category) => (
-              <label className="categoryChoice" key={category.name}>
-                <input
-                  checked={selectedCategories.includes(category.name)}
-                  onChange={() => toggleCategory(category.name)}
-                  type="checkbox"
-                />
-                <span>
-                  <strong>{category.name}</strong>
-                  <small>{formatCount(category.fileCount)} files · {formatBytes(category.totalBytes)}</small>
-                  <small>{category.subSources.slice(0, 6).join(", ")}</small>
-                </span>
-              </label>
-            ))}
-          </div>
-        )}
-        <button className="pill" onClick={() => setShowAdvancedTools((current) => !current)} type="button">
-          {showAdvancedTools ? "Hide advanced tools" : "Show advanced tools"}
-        </button>
-        {showAdvancedTools && (
-          <div className="advancedPanel">
-            <h2>Advanced tools</h2>
-            <p className="mutedText">Use these only when you want a specific low-level operation instead of the guided import.</p>
-            <div className="syncActions">
-              <button className="pill" onClick={handleIndexMultimedia} type="button">Index selected folder only</button>
-              <button className="pill" onClick={handleRunSmartSwitchSync} type="button">Copy selected SmartSwitch categories</button>
-              <button className="pill" onClick={handlePullFromDevice} type="button">Copy from phone to staging</button>
+              <button
+                className={selectedSource?.adapter === "samsung-smartswitch" ? "sourceTypeCard selectedSource" : "sourceTypeCard"}
+                onClick={() => {
+                  const smartSwitch = backupSources.find((source) => source.adapter === "samsung-smartswitch");
+                  if (smartSwitch) {
+                    selectSource(smartSwitch);
+                    setStatus("SmartSwitch backup selected. Preview the import next.");
+                    setStatusTone("success");
+                  } else {
+                    void chooseSmartSwitchFolder();
+                  }
+                }}
+                type="button"
+              >
+                <strong>SmartSwitch backup</strong>
+                <span>{backupSources.some((source) => source.adapter === "samsung-smartswitch") ? "Backup ready" : "Choose backup folder"}</span>
+                <small>Reads media and structured backup categories when available.</small>
+              </button>
+              <button className="sourceTypeCard" onClick={chooseSourceFolder} type="button">
+                <strong>Any folder</strong>
+                <span>Photos, videos, music, documents</span>
+                <small>Best for exports, copied phone folders, or external drives.</small>
+              </button>
             </div>
-            {syncSteps.map((step, index) => (
-              <div className="step" key={step}>
-                <span>{index + 1}</span>
-                <p>{step}</p>
-              </div>
-            ))}
-          </div>
+            <div className="syncActions">
+              <button className="pill" disabled={busyAction === "adb-refresh"} onClick={refreshAdb} type="button">
+                {busyAction === "adb-refresh" ? "Checking devices..." : "Refresh Android devices"}
+              </button>
+            </div>
+            {sources.length > 0 && (
+              <>
+                <h2>Detected sources</h2>
+                <div className="sourceList">
+                  {sources.map((source) => (
+                    <button
+                      className={source.id === selectedSourceId ? "sourceRow selectedSource" : "sourceRow"}
+                      key={source.id}
+                      onClick={() => selectSource(source)}
+                      type="button"
+                    >
+                      <strong>{source.label}</strong>
+                      <span>{adapterLabel(source.adapter)}</span>
+                      {source.device && (
+                        <small>
+                          {source.device.manufacturer} {source.device.model}
+                          {source.device.androidVersion ? ` · Android ${source.device.androidVersion}` : ""}
+                        </small>
+                      )}
+                      {source.path && <small>{source.path}</small>}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </>
         )}
-        <h2>Safe-purge advisor</h2>
-        <div className="syncActions">
-          <button className="pill" onClick={refreshCoverage} type="button">Refresh coverage</button>
+
+        {/* STEP 2 — Get the data */}
+        {step === 2 && (
+          <>
+            <div className="summaryBox">
+              <strong>{selectedSource?.label ?? "Selected source"}</strong>
+              <span>{selectedSource ? adapterLabel(selectedSource.adapter) : "Choose what to import"}</span>
+            </div>
+            {selectedSource?.adapter !== "adb-generic" && (
+              <PathPickerField
+                buttonLabel="Choose source folder"
+                description="Only needed when PhoneBridge did not detect your backup automatically."
+                label="Selected source"
+                onChange={setSelectedSourcePath}
+                onChoose={chooseSourceFolder}
+                value={selectedSourcePath}
+              />
+            )}
+            {adbDiagnostic && selectedSource?.adapter === "adb-generic" && (
+              <div className="summaryBox">
+                <strong>{adbDiagnostic.message}</strong>
+                <span>{adbDiagnostic.nextAction}</span>
+                {adbDiagnostic.adbPath && <small>ADB: {adbDiagnostic.adbPath}</small>}
+                {adbDiagnostic.devices.map((device) => (
+                  <small key={device.sourceId}>{device.label} · {device.status} · {device.redactedId}</small>
+                ))}
+              </div>
+            )}
+            {selectedSource?.adapter === "adb-generic" && (
+              <div className="summaryBox">
+                <strong>On-device media</strong>
+                <span>Measure first so you don&apos;t blindly copy tens of gigabytes. Then pick the folders to import.</span>
+                <div className="syncActions">
+                  <button className="pill" disabled={busyAction === "adb-preview"} onClick={handlePreviewDeviceMedia} type="button">
+                    {busyAction === "adb-preview" ? "Measuring..." : mediaPreview ? "Re-measure phone media" : "Preview phone media"}
+                  </button>
+                </div>
+                {mediaPreview && (
+                  <div className="pullFolderList">
+                    {mediaPreview.map((folder) => (
+                      <label key={folder.key} className={folder.available ? "pullFolderRow" : "pullFolderRow disabledRow"}>
+                        <input
+                          type="checkbox"
+                          checked={selectedPullKeys.includes(folder.key)}
+                          disabled={!folder.available}
+                          onChange={() => togglePullKey(folder.key)}
+                        />
+                        <span>{folder.label}</span>
+                        <small>{folder.available ? `${formatCount(folder.fileCount)} files · ${formatBytes(folder.totalBytes)}` : "empty / unavailable"}</small>
+                      </label>
+                    ))}
+                    <small>
+                      Selected: {formatBytes(
+                        mediaPreview
+                          .filter((folder) => selectedPullKeys.includes(folder.key))
+                          .reduce((sum, folder) => sum + folder.totalBytes, 0),
+                      )}
+                    </small>
+                  </div>
+                )}
+              </div>
+            )}
+            {adbPullResult && (
+              <div className="summaryBox">
+                <strong>{formatCount(adbPullResult.pulledFiles)} files copied from phone · {formatCount(adbPullResult.skippedFiles)} skipped</strong>
+                <span>{formatCount(adbPullResult.pulledPaths)} folders scanned · {formatCount(adbPullResult.totalFiles)} files found</span>
+                {adbPullResult.permissionDeniedFiles > 0 && <span>{formatCount(adbPullResult.permissionDeniedFiles)} file(s) Android refused to share</span>}
+                {adbPullResult.errors.length > 0 && <small>{adbPullResult.errors.length} warning(s): {adbPullResult.errors[0]}</small>}
+              </div>
+            )}
+            {adbPullProgress && (
+              <div className="summaryBox">
+                <strong>{formatCount(adbPullProgress.pulledFiles)} / {formatCount(adbPullProgress.totalFiles)} files copied</strong>
+                <span>{formatCount(adbPullProgress.pulledPaths)} folders done · {formatCount(adbPullProgress.skippedPaths)} skipped</span>
+                {adbPullProgress.permissionDeniedFiles > 0 && <span>{formatCount(adbPullProgress.permissionDeniedFiles)} file(s) Android refused to share</span>}
+                <span>{adbPullProgress.currentPath}</span>
+              </div>
+            )}
+            {categories.length > 0 && (
+              <>
+                <h2>SmartSwitch categories</h2>
+                <div className="syncActions">
+                  <button className="pill" onClick={selectAllCategories} type="button">Select all</button>
+                  <button className="pill" onClick={() => setSelectedCategories([])} type="button">Clear</button>
+                </div>
+                <div className="categoryGrid">
+                  {categories.map((category) => (
+                    <label className="categoryChoice" key={category.name}>
+                      <input
+                        checked={selectedCategories.includes(category.name)}
+                        onChange={() => toggleCategory(category.name)}
+                        type="checkbox"
+                      />
+                      <span>
+                        <strong>{category.name}</strong>
+                        <small>{formatCount(category.fileCount)} files · {formatBytes(category.totalBytes)}</small>
+                        <small>{category.subSources.slice(0, 6).join(", ")}</small>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </>
+            )}
+            <div className="syncActions">
+              <button className="primaryButton" disabled={Boolean(busyAction) || (!selectedSourcePath && selectedSource?.adapter !== "adb-generic")} onClick={handlePrimaryAction} type="button">
+                {busyAction ? "Working..." : primaryActionLabel()}
+              </button>
+              <button className="pill" onClick={() => setStep(1)} type="button">Back</button>
+            </div>
+          </>
+        )}
+
+        {/* STEP 3 — Preview */}
+        {step === 3 && consolidationPlan && (
+          <>
+            <div className="summaryBox heroSummary">
+              <strong>{formatCount(consolidationPlan.newFiles)} new · {formatCount(consolidationPlan.duplicateFiles)} already in your library</strong>
+              <span>{formatBytes(consolidationPlan.newBytes)} of new data · {formatBytes(consolidationPlan.duplicateBytes)} already covered</span>
+            </div>
+            {progress && (
+              <div className="summaryBox">
+                <strong>{formatCount(progress.processedFiles)} / {formatCount(progress.totalFiles)} processed</strong>
+                <span>{progress.currentPath}</span>
+              </div>
+            )}
+            <div className="syncActions">
+              <button className="primaryButton" disabled={Boolean(busyAction)} onClick={handleRunConsolidation} type="button">
+                {busyAction === "import" ? "Importing..." : "Import and deduplicate"}
+              </button>
+              <button className="pill" onClick={() => { setConsolidationPlan(null); setStep(2); }} type="button">Back</button>
+            </div>
+          </>
+        )}
+
+        {/* STEP 4 — Done */}
+        {step === 4 && (
+          <>
+            {progress && (
+              <div className="summaryBox">
+                <strong>{formatCount(progress.processedFiles)} / {formatCount(progress.totalFiles)} processed</strong>
+                <span>{progress.currentPath}</span>
+              </div>
+            )}
+            {consolidationResult && (
+              <div className="summaryBox heroSummary">
+                <strong>
+                  {consolidationResult.copiedFiles > 0
+                    ? `${formatCount(consolidationResult.copiedFiles)} new files added to your library`
+                    : "Nothing new — everything was already in your library"}
+                  {consolidationResult.occurrencesRecorded > consolidationResult.copiedFiles
+                    ? ` · ${formatCount(consolidationResult.occurrencesRecorded - consolidationResult.copiedFiles)} already had a copy`
+                    : ""}
+                </strong>
+                <span>Your originals were left untouched.</span>
+                {consolidationResult.errors.length > 0 && (
+                  <small>{consolidationResult.errors.length} warning(s): {consolidationResult.errors[0]}</small>
+                )}
+              </div>
+            )}
+            <div className="syncActions">
+              {onNavigate && (
+                <button className="primaryButton" onClick={() => onNavigate("gallery")} type="button">View your library →</button>
+              )}
+              <button className="pill" onClick={() => { setConsolidationPlan(null); setConsolidationResult(null); setStep(1); }} type="button">Import another source</button>
+            </div>
+          </>
+        )}
+
+        {/* Advanced — out of the guided flow, collapsed */}
+        <div className="advancedPanel">
+          <button className="pill" onClick={() => setShowAdvancedTools((current) => !current)} type="button">
+            {showAdvancedTools ? "Hide advanced settings" : "Advanced settings"}
+          </button>
+          {showAdvancedTools && (
+            <>
+              <PathPickerField
+                buttonLabel="Choose library folder"
+                description="Where PhoneBridge stores deduplicated copies. Originals stay where they are. The default works for most people."
+                label="PhoneBridge library (destination)"
+                onChange={setDestinationPath}
+                onChoose={chooseDestinationFolder}
+                value={destinationPath}
+              />
+              <h2>Low-level tools</h2>
+              <p className="mutedText">Use these only when you want a specific operation instead of the guided import.</p>
+              <div className="syncActions">
+                <button className="pill" onClick={handleIndexMultimedia} type="button">Index selected folder only</button>
+                <button className="pill" onClick={handleRunSmartSwitchSync} type="button">Copy selected SmartSwitch categories</button>
+                <button className="pill" onClick={handlePullFromDevice} type="button">Copy from phone to staging</button>
+              </div>
+              {summary && (
+                <div className="summaryBox">
+                  <strong>{formatCount(summary.scannedFiles)} files indexed</strong>
+                  <span>{formatBytes(summary.totalBytes)} scanned from {summary.rootPath}</span>
+                  <small>SQLite: {summary.databasePath}</small>
+                </div>
+              )}
+              {syncResult && (
+                <div className="summaryBox">
+                  <strong>{formatCount(syncResult.copiedFiles)} copied · {formatCount(syncResult.skippedFiles)} skipped</strong>
+                  <span>{formatBytes(syncResult.copiedBytes)} copied · {formatBytes(syncResult.skippedBytes)} skipped</span>
+                  {syncResult.errors.length > 0 && <small>{syncResult.errors.length} warning(s): {syncResult.errors[0]}</small>}
+                </div>
+              )}
+              {syncProgress && (
+                <div className="summaryBox">
+                  <strong>{formatCount(syncProgress.copiedFiles)} copied · {formatCount(syncProgress.skippedFiles)} skipped</strong>
+                  <span>{syncProgress.currentPath}</span>
+                </div>
+              )}
+              <h2>Safe-purge advisor</h2>
+              <p className="mutedText">After importing, see which original backups are fully covered and safe to delete. PhoneBridge never deletes anything for you.</p>
+              <div className="syncActions">
+                <button className="pill" onClick={refreshCoverage} type="button">Refresh coverage</button>
+              </div>
+              {backupCoverage.length === 0 ? (
+                <p>No consolidated backups recorded yet.</p>
+              ) : (
+                <div className="sourceList">
+                  {backupCoverage.map((backup) => (
+                    <div className="sourceRow" key={backup.backupId}>
+                      <strong>{backup.label}</strong>
+                      <span>{backup.coveragePercent.toFixed(1)}% covered · {backup.safeToDelete ? "safe to delete original" : "keep original"}</span>
+                      <small>{formatCount(backup.coveredFiles)} / {formatCount(backup.totalFiles)} files · {formatBytes(backup.reclaimableBytes)} reclaimable</small>
+                      <small>{backup.sourcePath}</small>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
         </div>
-        {backupCoverage.length === 0 ? (
-          <p>No consolidated backups recorded yet.</p>
-        ) : (
-          <div className="sourceList">
-            {backupCoverage.map((backup) => (
-              <div className="sourceRow" key={backup.backupId}>
-                <strong>{backup.label}</strong>
-                <span>{backup.coveragePercent.toFixed(1)}% covered · {backup.safeToDelete ? "safe to delete original" : "keep original"}</span>
-                <small>{formatCount(backup.coveredFiles)} / {formatCount(backup.totalFiles)} files · {formatBytes(backup.reclaimableBytes)} reclaimable</small>
-                <small>{backup.sourcePath}</small>
-              </div>
-            ))}
-          </div>
-        )}
       </div>
     </section>
   );

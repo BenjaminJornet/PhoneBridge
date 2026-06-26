@@ -1,9 +1,10 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { useEffect, useState } from "react";
 import EmptyState from "../components/EmptyState";
+import Lightbox from "../components/Lightbox";
 import SectionHeader from "../components/SectionHeader";
-import { listIndexedFiles, openFile } from "../lib/api";
-import { formatBytes } from "../lib/format";
+import { listIndexedFiles } from "../lib/api";
+import { formatBytes, formatCategoryLabel } from "../lib/format";
 import type { IndexedFile } from "../lib/types";
 
 const filters = [
@@ -28,6 +29,7 @@ export default function Gallery({ onImport }: GalleryProps) {
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [status, setStatus] = useState("Loading indexed files...");
+  const [activeFile, setActiveFile] = useState<IndexedFile | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -99,11 +101,11 @@ export default function Gallery({ onImport }: GalleryProps) {
       ) : (
         <div className="mediaGrid" aria-label="Indexed media grid">
           {files.map((file) => (
-            <article className="mediaTile" key={file.id} title={file.absolutePath} onClick={() => void openFile(file.absolutePath)} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === "Enter") void openFile(file.absolutePath); }}>
+            <article className="mediaTile" key={file.id} title={file.absolutePath} onClick={() => setActiveFile(file)} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === "Enter") setActiveFile(file); }}>
               {file.category === "photo" && file.extension && previewablePhotoExtensions.has(file.extension) && (
                 <img alt={file.relativePath} loading="lazy" src={convertFileSrc(file.absolutePath)} />
               )}
-              <strong>{file.extension?.toUpperCase() ?? file.category}</strong>
+              <strong>{file.extension?.toUpperCase() ?? formatCategoryLabel(file.category)}</strong>
               <span>{file.relativePath}</span>
               <small>{file.source} · {formatBytes(file.sizeBytes)}</small>
             </article>
@@ -117,6 +119,7 @@ export default function Gallery({ onImport }: GalleryProps) {
           </button>
         </div>
       )}
+      {activeFile && <Lightbox file={activeFile} onClose={() => setActiveFile(null)} />}
     </section>
   );
 }

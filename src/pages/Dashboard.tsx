@@ -57,33 +57,25 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
         <StatsCard label="Privacy" value="100% local" detail="no cloud upload or telemetry" />
       </div>
       {error && <StatusCallout title="Detection issue" message={error} tone="warning" />}
-      <div className="quickStartGrid">
-        <article className="card quickStartCard">
-          <span>Recommended</span>
-          <h2>{hasLibrary ? "Continue exploring your library" : "Import your first source"}</h2>
-          <p>
-            {hasLibrary
-              ? "Your local library already has data. Open it, or import another backup to deduplicate against what is already covered."
-              : "Start with the guided import. You will choose a source first, then preview what PhoneBridge will add before anything is copied."}
-          </p>
-          <div className="syncActions compactActions">
-            <button className="primaryButton" onClick={() => onNavigate(hasLibrary ? "gallery" : "sync")} type="button">
-              {hasLibrary ? "Open library" : "Start guided import"}
-            </button>
-            <button className="pill" onClick={() => onNavigate("data")} type="button">Open data tools</button>
-          </div>
-        </article>
-        <article className="card quickStartCard">
-          <span>Detected now</span>
-          <h2>{formatCount(adbSources.length)} phone(s) · {formatCount(backupSources.length)} backup(s)</h2>
-          <p>
-            {sources.length > 0
-              ? "PhoneBridge found sources it can use. The guided import will explain what each source contains before importing."
-              : "No phone or known backup was detected automatically. You can still choose any folder manually."}
-          </p>
-          <button className="pill" onClick={() => onNavigate("sync")} type="button">Choose a source</button>
-        </article>
-      </div>
+      <article className="card quickStartCard heroCard">
+        <span>{hasLibrary ? "Your library" : "Get started"}</span>
+        <h2>{hasLibrary ? "Continue with your library" : "Bring in your first source"}</h2>
+        <p>
+          {hasLibrary
+            ? "Your local library already has data. Open it to browse, or import another backup — PhoneBridge deduplicates against what you already have."
+            : sources.length > 0
+              ? `PhoneBridge detected ${formatCount(adbSources.length)} phone(s) and ${formatCount(backupSources.length)} backup(s). The guided import walks you through it, one step at a time.`
+              : "Start the guided import. You pick a source first, then preview exactly what will be added before anything is copied."}
+        </p>
+        <div className="syncActions compactActions">
+          <button className="primaryButton" onClick={() => onNavigate(hasLibrary ? "gallery" : "sync")} type="button">
+            {hasLibrary ? "Open my library" : "Start guided import"}
+          </button>
+          {hasLibrary && (
+            <button className="pill" onClick={() => onNavigate("sync")} type="button">Import more</button>
+          )}
+        </div>
+      </article>
       {!hasLibrary && (
         <EmptyState
           title="Nothing has been imported yet."

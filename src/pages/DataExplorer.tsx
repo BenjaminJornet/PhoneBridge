@@ -3,7 +3,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import PathPickerField from "../components/PathPickerField";
 import SectionHeader from "../components/SectionHeader";
 import StatusCallout from "../components/StatusCallout";
-import { decryptWhatsAppDatabase, getCategoryMetrics, getSmartSwitchArchiveInventory, getSmartSwitchItemMetrics, getStructuredRecords } from "../lib/api";
+import { decryptWhatsAppDatabase, detectAdbDevices, getCategoryMetrics, getSmartSwitchArchiveInventory, getSmartSwitchItemMetrics, getStructuredRecords, pullWhatsAppDatabase } from "../lib/api";
 import { formatBytes, formatCategoryLabel, formatCount } from "../lib/format";
 import type { CategoryMetric, SmartSwitchArchiveInventory, SmartSwitchItemMetric, StructuredRecord, WhatsAppDecryptResult } from "../lib/types";
 import { mapWhatsAppError } from "../lib/ux";
@@ -36,6 +36,7 @@ export default function DataExplorer({ onNavigate }: DataExplorerProps) {
   const [whatsAppStatus, setWhatsAppStatus] = useState("Choose your encrypted WhatsApp database. PhoneBridge will decrypt locally only after you provide your own key.");
   const [whatsAppTone, setWhatsAppTone] = useState<StatusTone>("info");
   const [showWhatsAppAdvanced, setShowWhatsAppAdvanced] = useState(false);
+  const [pullingWhatsApp, setPullingWhatsApp] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -65,6 +66,31 @@ export default function DataExplorer({ onNavigate }: DataExplorerProps) {
     const selected = await open({ multiple: false });
     if (typeof selected === "string") {
       setWhatsAppDbPath(selected);
+    }
+  }
+
+  async function pullWhatsAppFromPhone() {
+    setPullingWhatsApp(true);
+    setWhatsAppStatus("Looking for a connected Android phone...");
+    setWhatsAppTone("info");
+    try {
+      const devices = await detectAdbDevices();
+      const phone = devices.find((device) => device.adapter === "adb-generic");
+      if (!phone) {
+        setWhatsAppStatus("No authorized Android phone detected. Connect it by USB and accept the debugging prompt, then try again.");
+        setWhatsAppTone("warning");
+        return;
+      }
+      setWhatsAppStatus("Copying the encrypted WhatsApp database from your phone...");
+      const result = await pullWhatsAppDatabase(phone.id, "~/.phonebridge/whatsapp");
+      setWhatsAppDbPath(result.localPath);
+      setWhatsAppStatus(`WhatsApp database copied (${result.format}). Now provide your key below to decrypt it — PhoneBridge cannot extract the key from the phone.`);
+      setWhatsAppTone("success");
+    } catch (cause) {
+      setWhatsAppStatus(mapWhatsAppError(cause instanceof Error ? cause.message : String(cause)));
+      setWhatsAppTone("error");
+    } finally {
+      setPullingWhatsApp(false);
     }
   }
 
@@ -114,15 +140,20 @@ export default function DataExplorer({ onNavigate }: DataExplorerProps) {
         <article className="card dataCard">
           <span className="eyebrowText">Guided helper</span>
           <h2>WhatsApp messages</h2>
-          <p>Use this only if you already have a WhatsApp encrypted database and matching key. Everything stays on this computer.</p>
+          <p>Copy the encrypted database straight from your connected phone, then provide your own key to decrypt it locally. Everything stays on this computer.</p>
           <div className="wizardSteps compactWizard" aria-label="WhatsApp decrypt steps">
-            <div className={whatsAppDbPath ? "step activeStep" : "step"}><span>1</span><p>Choose DB</p></div>
+            <div className={whatsAppDbPath ? "step activeStep" : "step"}><span>1</span><p>Get the database</p></div>
             <div className={whatsAppKeyPath || whatsAppKeyHex ? "step activeStep" : "step"}><span>2</span><p>Provide key</p></div>
             <div className={whatsAppReady ? "step activeStep" : "step"}><span>3</span><p>Decrypt locally</p></div>
           </div>
+          <div className="syncActions compactActions">
+            <button className="primaryButton" disabled={pullingWhatsApp} onClick={pullWhatsAppFromPhone} type="button">
+              {pullingWhatsApp ? "Copying from phone..." : "Get WhatsApp database from phone"}
+            </button>
+          </div>
           <PathPickerField
-            buttonLabel="Choose encrypted DB"
-            description="Pick msgstore.db.crypt14 or msgstore.db.crypt15."
+            buttonLabel="Or choose a file"
+            description="Auto-filled when you copy from the phone. Or pick msgstore.db.crypt14 / msgstore.db.crypt15 manually."
             label="Encrypted WhatsApp database"
             onChange={setWhatsAppDbPath}
             onChoose={chooseWhatsAppDb}
@@ -140,6 +171,7 @@ export default function DataExplorer({ onNavigate }: DataExplorerProps) {
             <span>Or paste a crypt15 key</span>
             <input value={whatsAppKeyHex} onChange={(event) => setWhatsAppKeyHex(event.target.value)} placeholder="64 hexadecimal characters, optional" />
           </label>
+          <p className="mutedText">The decryption key lives in WhatsApp&apos;s private storage and can&apos;t be copied without rooting the phone — PhoneBridge never does that. You provide the key yourself (from a backup export or a rooted pull).</p>
           <button className="pill" onClick={() => setShowWhatsAppAdvanced((current) => !current)} type="button">
             {showWhatsAppAdvanced ? "Hide advanced output" : "Show advanced output"}
           </button>
