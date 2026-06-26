@@ -166,6 +166,10 @@ export function runConsolidation(config: ConsolidationConfig): Promise<Consolida
   }, { config });
 }
 
+export async function openFile(path: string): Promise<void> {
+  return invokeIfAvailable("open_file", undefined, { path });
+}
+
 export function listBackupCoverage(): Promise<BackupCoverage[]> {
   return invokeIfAvailable("list_backup_coverage", []);
 }

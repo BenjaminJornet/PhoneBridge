@@ -4,7 +4,7 @@ import PathPickerField from "../components/PathPickerField";
 import SectionHeader from "../components/SectionHeader";
 import StatusCallout from "../components/StatusCallout";
 import { decryptWhatsAppDatabase, getCategoryMetrics, getSmartSwitchArchiveInventory, getSmartSwitchItemMetrics, getStructuredRecords } from "../lib/api";
-import { formatBytes, formatCount } from "../lib/format";
+import { formatBytes, formatCategoryLabel, formatCount } from "../lib/format";
 import type { CategoryMetric, SmartSwitchArchiveInventory, SmartSwitchItemMetric, StructuredRecord, WhatsAppDecryptResult } from "../lib/types";
 import { mapWhatsAppError } from "../lib/ux";
 import type { StatusTone } from "../lib/ux";
@@ -19,7 +19,11 @@ const categories = [
   { label: "Browser data", status: "Readable SBROWSER JSON/HTML exports parse into records" },
 ];
 
-export default function DataExplorer() {
+interface DataExplorerProps {
+  onNavigate?: (page: "gallery") => void;
+}
+
+export default function DataExplorer({ onNavigate }: DataExplorerProps) {
   const [metrics, setMetrics] = useState<CategoryMetric[]>([]);
   const [smartSwitchMetrics, setSmartSwitchMetrics] = useState<SmartSwitchItemMetric[]>([]);
   const [archiveInventory, setArchiveInventory] = useState<SmartSwitchArchiveInventory[]>([]);
@@ -155,9 +159,12 @@ export default function DataExplorer() {
         </article>
         {metrics.map((metric) => (
           <article className="card dataCard" key={metric.category}>
-            <h2>{metric.category}</h2>
+            <h2>{formatCategoryLabel(metric.category)}</h2>
             <strong>{formatCount(metric.count)} files</strong>
             <p>{formatBytes(metric.bytes)} indexed locally.</p>
+            {onNavigate && (
+              <button className="pill" onClick={() => onNavigate("gallery")} type="button">Browse in Library →</button>
+            )}
           </article>
         ))}
         {smartSwitchMetrics.slice(0, 12).map((metric) => (

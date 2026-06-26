@@ -2,7 +2,7 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import { useEffect, useState } from "react";
 import EmptyState from "../components/EmptyState";
 import SectionHeader from "../components/SectionHeader";
-import { listIndexedFiles } from "../lib/api";
+import { listIndexedFiles, openFile } from "../lib/api";
 import { formatBytes } from "../lib/format";
 import type { IndexedFile } from "../lib/types";
 
@@ -99,7 +99,7 @@ export default function Gallery({ onImport }: GalleryProps) {
       ) : (
         <div className="mediaGrid" aria-label="Indexed media grid">
           {files.map((file) => (
-            <article className="mediaTile" key={file.id} title={file.absolutePath}>
+            <article className="mediaTile" key={file.id} title={file.absolutePath} onClick={() => void openFile(file.absolutePath)} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === "Enter") void openFile(file.absolutePath); }}>
               {file.category === "photo" && file.extension && previewablePhotoExtensions.has(file.extension) && (
                 <img alt={file.relativePath} loading="lazy" src={convertFileSrc(file.absolutePath)} />
               )}

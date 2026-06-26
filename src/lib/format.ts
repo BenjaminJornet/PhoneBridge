@@ -13,3 +13,15 @@ export function formatBytes(bytes: number): string {
 export function formatCount(value: number): string {
   return new Intl.NumberFormat("en-US").format(value);
 }
+
+const CATEGORY_LABELS: Record<string, string> = {
+  photo: "Photos",
+  video: "Videos",
+  music: "Music",
+  documents: "Documents",
+  other: "Other",
+};
+
+export function formatCategoryLabel(category: string): string {
+  return CATEGORY_LABELS[category] ?? category;
+}

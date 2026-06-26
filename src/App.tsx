@@ -68,9 +68,9 @@ export default function App() {
       </aside>
       <main className="content">
         {page === "dashboard" && <Dashboard onNavigate={setPage} />}
-        {page === "sync" && <Sync />}
+        {page === "sync" && <Sync onNavigate={setPage} />}
         {page === "gallery" && <Gallery onImport={() => setPage("sync")} />}
-        {page === "data" && <DataExplorer />}
+        {page === "data" && <DataExplorer onNavigate={setPage} />}
       </main>
     </div>
   );

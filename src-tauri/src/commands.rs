@@ -161,3 +161,12 @@ pub async fn run_consolidation(
 pub fn list_backup_coverage() -> Result<Vec<BackupCoverage>, String> {
     library::list_backup_coverage().map_err(|err| err.to_string())
 }
+
+#[tauri::command]
+pub fn open_file(path: String) -> Result<(), String> {
+    std::process::Command::new("open")
+        .arg(&path)
+        .spawn()
+        .map(|_| ())
+        .map_err(|err| err.to_string())
+}

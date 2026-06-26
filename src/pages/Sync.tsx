@@ -45,7 +45,11 @@ function hasTauriRuntime(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
 
-export default function Sync() {
+interface SyncProps {
+  onNavigate?: (page: "gallery") => void;
+}
+
+export default function Sync({ onNavigate }: SyncProps) {
   const [sources, setSources] = useState<BackupSource[]>([]);
   const [adapterRegistry, setAdapterRegistry] = useState<AdapterDefinition[]>([]);
   const [selectedSourceId, setSelectedSourceId] = useState("");
@@ -540,6 +544,12 @@ export default function Sync() {
           <div className={canImport ? "step activeStep" : "step"}><span>3</span><p>Import safely</p></div>
         </div>
         <StatusCallout title="Import status" message={status} tone={statusTone} />
+        {consolidationPlan && !consolidationResult && (
+          <div className="summaryBox">
+            <strong>{formatCount(consolidationPlan.newFiles)} new · {formatCount(consolidationPlan.duplicateFiles)} duplicates</strong>
+            <span>{formatBytes(consolidationPlan.newBytes)} new · {formatBytes(consolidationPlan.duplicateBytes)} already covered</span>
+          </div>
+        )}
         <h2>Pick what you want to import</h2>
         <div className="sourceTypeGrid">
           <button
@@ -583,14 +593,16 @@ export default function Sync() {
             <small>Best for exports, copied phone folders, or external drives.</small>
           </button>
         </div>
-        <PathPickerField
-          buttonLabel="Choose source folder"
-          description="Only needed when PhoneBridge did not detect your backup automatically."
-          label="Selected source"
-          onChange={setSelectedSourcePath}
-          onChoose={chooseSourceFolder}
-          value={selectedSourcePath}
-        />
+        {selectedSource?.adapter !== "adb-generic" && (
+          <PathPickerField
+            buttonLabel="Choose source folder"
+            description="Only needed when PhoneBridge did not detect your backup automatically."
+            label="Selected source"
+            onChange={setSelectedSourcePath}
+            onChoose={chooseSourceFolder}
+            value={selectedSourcePath}
+          />
+        )}
         <PathPickerField
           buttonLabel="Choose library folder"
           description="Where PhoneBridge stores deduplicated copies. Originals stay where they are."
@@ -691,26 +703,21 @@ export default function Sync() {
             <span>{adbPullProgress.currentPath}</span>
           </div>
         )}
-        {consolidationPlan && (
-          <div className="summaryBox">
-            <strong>
-              {formatCount(consolidationPlan.newFiles)} new · {formatCount(consolidationPlan.duplicateFiles)} duplicates
-            </strong>
-            <span>
-              {formatBytes(consolidationPlan.newBytes)} new · {formatBytes(consolidationPlan.duplicateBytes)} already covered
-            </span>
-            <small>Dry-run source: {consolidationPlan.sourcePath}</small>
-          </div>
-        )}
         {consolidationResult && (
           <div className="summaryBox">
             <strong>
-              {formatCount(consolidationResult.copiedFiles)} stored · {formatCount(consolidationResult.occurrencesRecorded)} occurrences
+              {consolidationResult.copiedFiles > 0
+                ? `${formatCount(consolidationResult.copiedFiles)} files added`
+                : "No new files — all already covered"}
+              {consolidationResult.occurrencesRecorded > consolidationResult.copiedFiles
+                ? ` · ${formatCount(consolidationResult.occurrencesRecorded - consolidationResult.copiedFiles)} already had a copy`
+                : ""}
             </strong>
-            <span>Backup id: {consolidationResult.backupId}</span>
-            <small>Run id: {consolidationResult.runId}</small>
             {consolidationResult.errors.length > 0 && (
               <small>{consolidationResult.errors.length} warning(s): {consolidationResult.errors[0]}</small>
+            )}
+            {onNavigate && (
+              <button className="pill" onClick={() => onNavigate("gallery")} type="button">View your library →</button>
             )}
           </div>
         )}

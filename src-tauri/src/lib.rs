@@ -32,6 +32,7 @@ pub fn run() {
             commands::run_smartswitch_sync,
             commands::scan_backup_sources,
             commands::scan_smartswitch_categories,
+            commands::open_file,
         ])
         .run(tauri::generate_context!())
         .expect("failed to run PhoneBridge");
