@@ -2,6 +2,7 @@ use crate::adapters::CategoryMetric;
 use crate::path_utils::expand_home;
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
+use sha2::{Digest, Sha256};
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -10,8 +11,13 @@ use walkdir::WalkDir;
 
 const APP_DIR_NAME: &str = ".phonebridge";
 const DB_FILE_NAME: &str = "phonebridge.sqlite3";
+const THUMBS_DIR_NAME: &str = "thumbs";
 const MULTIMEDIA_CATEGORIES: [&str; 4] = ["Photo", "Video", "Music", "Documents"];
-const CURRENT_SCHEMA_VERSION: i64 = 5;
+const CURRENT_SCHEMA_VERSION: i64 = 6;
+// Photo extensions that WebViews can't render natively → generate JPEG thumbnails via sips.
+const NON_WEB_PHOTO_EXTENSIONS: &[&str] = &[
+    "heic", "heif", "tif", "tiff", "dng", "raw", "cr2", "nef", "arw", "rw2", "orf",
+];
 
 #[derive(Debug, Error)]
 pub enum DbError {
@@ -44,6 +50,7 @@ pub struct IndexedFile {
     pub extension: Option<String>,
     pub size_bytes: u64,
     pub modified_unix: Option<i64>,
+    pub thumbnail_path: Option<String>,
 }
 
 pub fn open_default_connection() -> Result<Connection, DbError> {
@@ -81,6 +88,9 @@ pub fn initialize(connection: &Connection) -> Result<(), DbError> {
         }
         if version < 5 {
             migrate_to_v5(connection)?;
+        }
+        if version < 6 {
+            migrate_to_v6(connection)?;
         }
     }
 
@@ -258,6 +268,66 @@ fn migrate_to_v5(connection: &Connection) -> Result<(), DbError> {
     Ok(())
 }
 
+fn migrate_to_v6(connection: &Connection) -> Result<(), DbError> {
+    connection
+        .execute_batch(
+            "
+        ALTER TABLE files ADD COLUMN thumbnail_path TEXT;
+        PRAGMA user_version = 6;
+        ",
+        )
+        .or_else(|err| {
+            if err.to_string().contains("duplicate column name") {
+                connection.execute_batch("PRAGMA user_version = 6;")?;
+                Ok(())
+            } else {
+                Err(err)
+            }
+        })?;
+    Ok(())
+}
+
+fn default_thumbnails_dir() -> Result<PathBuf, DbError> {
+    Ok(env::var_os("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(APP_DIR_NAME)
+        .join(THUMBS_DIR_NAME))
+}
+
+fn needs_thumbnail(extension: &str) -> bool {
+    let lower = extension.to_ascii_lowercase();
+    NON_WEB_PHOTO_EXTENSIONS.contains(&lower.as_str())
+}
+
+/// Generate a JPEG thumbnail for non-web-displayable photos using the macOS `sips` utility.
+/// Returns the thumbnail path if generation succeeds; `None` if sips is unavailable or fails.
+/// Idempotent: skips sips if the output file already exists.
+fn generate_thumbnail(source: &Path, thumbs_dir: &Path) -> Option<PathBuf> {
+    let source_str = source.to_string_lossy();
+    let mut hasher = Sha256::new();
+    hasher.update(source_str.as_bytes());
+    let hash = format!("{:x}", hasher.finalize());
+    let output = thumbs_dir.join(format!("{}.jpg", &hash[..32]));
+
+    if output.exists() {
+        return Some(output);
+    }
+    if fs::create_dir_all(thumbs_dir).is_err() {
+        return None;
+    }
+    let result = std::process::Command::new("sips")
+        .args(["-s", "format", "jpeg", "-s", "formatOptions", "75", "-Z", "512"])
+        .arg(source.as_os_str())
+        .arg("--out")
+        .arg(output.as_os_str())
+        .output();
+    match result {
+        Ok(cmd) if cmd.status.success() && output.exists() => Some(output),
+        _ => None,
+    }
+}
+
 pub fn index_folder(source_path: String) -> Result<IndexSummary, DbError> {
     let root = expand_home(&source_path);
     let mut connection = open_default_connection()?;
@@ -298,6 +368,7 @@ pub fn index_multimedia(connection: &mut Connection, root: &Path) -> Result<Inde
         });
     }
 
+    let thumbs_dir = default_thumbnails_dir().ok();
     let transaction = connection.transaction()?;
     let mut scanned_files = 0;
     let mut indexed_files = 0;
@@ -315,8 +386,9 @@ pub fn index_multimedia(connection: &mut Connection, root: &Path) -> Result<Inde
               extension,
               size_bytes,
               modified_unix,
+              thumbnail_path,
               indexed_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, CURRENT_TIMESTAMP)
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, CURRENT_TIMESTAMP)
             ON CONFLICT(absolute_path) DO UPDATE SET
               root_path = excluded.root_path,
               relative_path = excluded.relative_path,
@@ -325,6 +397,7 @@ pub fn index_multimedia(connection: &mut Connection, root: &Path) -> Result<Inde
               extension = excluded.extension,
               size_bytes = excluded.size_bytes,
               modified_unix = excluded.modified_unix,
+              thumbnail_path = excluded.thumbnail_path,
               indexed_at = CURRENT_TIMESTAMP
             ",
         )?;
@@ -352,6 +425,14 @@ pub fn index_multimedia(connection: &mut Connection, root: &Path) -> Result<Inde
                 .map(|value| value.as_secs() as i64);
             let size_bytes = metadata.len();
 
+            let thumbnail_path = thumbs_dir.as_ref()
+                .filter(|_| {
+                    category == "photo"
+                        && extension.as_deref().map(needs_thumbnail).unwrap_or(false)
+                })
+                .and_then(|dir| generate_thumbnail(entry.path(), dir))
+                .map(|p| p.to_string_lossy().into_owned());
+
             scanned_files += 1;
             total_bytes += size_bytes;
             indexed_files += statement.execute(params![
@@ -363,6 +444,7 @@ pub fn index_multimedia(connection: &mut Connection, root: &Path) -> Result<Inde
                 extension,
                 size_bytes as i64,
                 modified_unix,
+                thumbnail_path,
             ])? as u64;
         }
     }
@@ -436,7 +518,7 @@ pub fn list_indexed_files(
 
     let sql = if category.is_some() {
         "
-        SELECT id, absolute_path, relative_path, category, source, extension, size_bytes, modified_unix
+        SELECT id, absolute_path, relative_path, category, source, extension, size_bytes, modified_unix, thumbnail_path
         FROM files
         WHERE category = ?1
         ORDER BY COALESCE(modified_unix, 0) DESC, size_bytes DESC
@@ -444,7 +526,7 @@ pub fn list_indexed_files(
         "
     } else {
         "
-        SELECT id, absolute_path, relative_path, category, source, extension, size_bytes, modified_unix
+        SELECT id, absolute_path, relative_path, category, source, extension, size_bytes, modified_unix, thumbnail_path
         FROM files
         ORDER BY COALESCE(modified_unix, 0) DESC, size_bytes DESC
         LIMIT ?1 OFFSET ?2
@@ -479,6 +561,7 @@ fn indexed_file_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<IndexedFil
         extension: row.get(5)?,
         size_bytes: row.get::<_, i64>(6)? as u64,
         modified_unix: row.get(7)?,
+        thumbnail_path: row.get(8)?,
     })
 }
 

@@ -58,6 +58,7 @@ export interface IndexedFile {
   extension?: string;
   sizeBytes: number;
   modifiedUnix?: number;
+  thumbnailPath?: string;
 }
 
 export interface SmartSwitchItemMetric {

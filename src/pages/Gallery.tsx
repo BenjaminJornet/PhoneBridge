@@ -100,16 +100,24 @@ export default function Gallery({ onImport }: GalleryProps) {
         />
       ) : (
         <div className="mediaGrid" aria-label="Indexed media grid">
-          {files.map((file) => (
-            <article className="mediaTile" key={file.id} title={file.absolutePath} onClick={() => setActiveFile(file)} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === "Enter") setActiveFile(file); }}>
-              {file.category === "photo" && file.extension && previewablePhotoExtensions.has(file.extension) && (
-                <img alt={file.relativePath} loading="lazy" src={convertFileSrc(file.absolutePath)} />
-              )}
-              <strong>{file.extension?.toUpperCase() ?? formatCategoryLabel(file.category)}</strong>
-              <span>{file.relativePath}</span>
-              <small>{file.source} · {formatBytes(file.sizeBytes)}</small>
-            </article>
-          ))}
+          {files.map((file) => {
+            // Prefer native path for web-displayable formats; fall back to generated thumbnail.
+            const imgSrc = file.category === "photo"
+              ? ((file.extension && previewablePhotoExtensions.has(file.extension))
+                ? file.absolutePath
+                : (file.thumbnailPath ?? null))
+              : null;
+            return (
+              <article className="mediaTile" key={file.id} title={file.absolutePath} onClick={() => setActiveFile(file)} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === "Enter") setActiveFile(file); }}>
+                {imgSrc && (
+                  <img alt={file.relativePath} loading="lazy" src={convertFileSrc(imgSrc)} />
+                )}
+                <strong>{file.extension?.toUpperCase() ?? formatCategoryLabel(file.category)}</strong>
+                <span>{file.relativePath}</span>
+                <small>{file.source} · {formatBytes(file.sizeBytes)}</small>
+              </article>
+            );
+          })}
         </div>
       )}
       {files.length > 0 && hasMore && (

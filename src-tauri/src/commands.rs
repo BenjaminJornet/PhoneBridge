@@ -49,7 +49,7 @@ pub async fn pull_from_device(
     tauri::async_runtime::spawn_blocking(move || {
         adb::pull_device_media_by_source_id(
             &source_id,
-            &PathBuf::from(destination_path),
+            &crate::path_utils::expand_home(&destination_path),
             selected_keys,
             Some(window),
         )

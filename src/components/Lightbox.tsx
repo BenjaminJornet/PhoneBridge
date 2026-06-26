@@ -1,5 +1,5 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { openFile, revealInFinder } from "../lib/api";
 import { formatBytes, formatCategoryLabel } from "../lib/format";
 import type { IndexedFile } from "../lib/types";
@@ -12,24 +12,39 @@ interface LightboxProps {
 }
 
 export default function Lightbox({ file, onClose }: LightboxProps) {
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    panelRef.current?.focus();
+  }, []);
+
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
       if (event.key === "Escape") {
         onClose();
       }
     }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    // capture: true fires before any child handler and works even if the
+    // WebView focus hasn't yet been set on the panel element.
+    document.addEventListener("keydown", onKey, true);
+    return () => document.removeEventListener("keydown", onKey, true);
   }, [onClose]);
 
-  const canDisplay = Boolean(file.extension && webDisplayableExtensions.has(file.extension.toLowerCase()));
+  const canDisplayNatively = Boolean(file.extension && webDisplayableExtensions.has(file.extension.toLowerCase()));
+  const canDisplay = canDisplayNatively || Boolean(file.thumbnailPath);
+  const displaySrc = canDisplayNatively ? file.absolutePath : (file.thumbnailPath ?? file.absolutePath);
 
   return (
     <div className="lightboxOverlay" onClick={onClose} role="presentation">
-      <div className="lightboxPanel" onClick={(event) => event.stopPropagation()} role="dialog" aria-modal="true">
+      <div className="lightboxPanel" ref={panelRef} tabIndex={-1} onClick={(event) => event.stopPropagation()} role="dialog" aria-modal="true">
         <div className="lightboxStage">
           {canDisplay ? (
-            <img alt={file.relativePath} src={convertFileSrc(file.absolutePath)} />
+            <>
+              <img alt={file.relativePath} src={convertFileSrc(displaySrc)} />
+              {!canDisplayNatively && file.thumbnailPath && (
+                <p className="mutedText">Thumbnail preview — open in Preview for the full-quality original.</p>
+              )}
+            </>
           ) : (
             <div className="lightboxPlaceholder">
               <strong>{file.extension?.toUpperCase() ?? formatCategoryLabel(file.category)}</strong>
