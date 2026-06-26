@@ -822,3 +822,186 @@ button.sourceRow:disabled {
     grid-template-columns: 1fr;
   }
 }
+
+/* ---- Duplicate finder ---- */
+
+.duplicateToggle {
+  margin-left: auto;
+}
+
+.duplicateGroup {
+  margin-top: 16px;
+  padding: 18px;
+}
+
+.duplicateGroupHeader {
+  align-items: center;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.duplicateGroupHeader strong {
+  display: block;
+}
+
+.duplicateGroupHeader small {
+  display: block;
+}
+
+.duplicateTiles {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+}
+
+.duplicateTileSelected {
+  outline: 3px solid var(--warning);
+  outline-offset: -3px;
+}
+
+.duplicateTileBody {
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  height: 100%;
+  justify-content: flex-end;
+}
+
+.duplicateCheck {
+  align-items: center;
+  background: var(--media-label-bg);
+  border-radius: 8px;
+  color: var(--text-overlay);
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 0.75rem;
+  gap: 6px;
+  left: 10px;
+  padding: 4px 8px;
+  position: absolute;
+  top: 10px;
+  z-index: 2;
+}
+
+.duplicateCheck input {
+  accent-color: var(--warning);
+  cursor: pointer;
+  margin: 0;
+}
+
+.dangerButton {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #fff;
+}
+
+.dangerPill {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+/* ---- Side-by-side compare ---- */
+
+.comparePanel {
+  max-width: min(1200px, 94vw);
+}
+
+.compareHeader {
+  align-items: center;
+  border-bottom: 1px solid var(--border-soft);
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  padding: 18px 22px;
+}
+
+.compareHeader strong {
+  display: block;
+}
+
+.compareHeader small {
+  display: block;
+}
+
+.compareGrid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  overflow-y: auto;
+  padding: 20px 22px;
+}
+
+.compareCard {
+  background: var(--surface-alt);
+  border: 1px solid var(--border-soft);
+  border-radius: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow: hidden;
+  padding: 12px;
+}
+
+.compareStage {
+  align-items: center;
+  aspect-ratio: 4 / 3;
+  background: var(--media-placeholder);
+  border-radius: 10px;
+  display: flex;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.compareStage img {
+  height: 100%;
+  object-fit: cover;
+  width: 100%;
+}
+
+.comparePlaceholder {
+  color: var(--text-description);
+  display: grid;
+  gap: 6px;
+  justify-items: center;
+  padding: 16px;
+  text-align: center;
+}
+
+.comparePlaceholder strong {
+  font-size: 1.4rem;
+}
+
+.compareMeta {
+  display: grid;
+  gap: 6px;
+}
+
+.compareMeta strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.compareMeta small {
+  color: var(--text-secondary);
+}
+
+.compareMeta code {
+  background: var(--surface);
+  border-radius: 8px;
+  color: var(--ink-soft);
+  font-size: 0.72rem;
+  overflow: hidden;
+  padding: 6px 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.compareActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}

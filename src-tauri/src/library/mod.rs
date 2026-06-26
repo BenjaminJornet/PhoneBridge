@@ -52,6 +52,10 @@ pub struct ConsolidationPlan {
     pub duplicate_files: u64,
     pub new_bytes: u64,
     pub duplicate_bytes: u64,
+    /// Source files that are new to the library but already exist in a folder the
+    /// user has indexed elsewhere on the computer. Informational only — these are
+    /// still copied in, so the consolidated library stays self-contained.
+    pub already_on_computer: u64,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -129,6 +133,7 @@ fn plan_consolidation_with_connection(
         duplicate_files: 0,
         new_bytes: 0,
         duplicate_bytes: 0,
+        already_on_computer: 0,
     };
 
     for file in files {
@@ -141,6 +146,9 @@ fn plan_consolidation_with_connection(
         } else {
             plan.new_files += 1;
             plan.new_bytes += file.size_bytes;
+            if hash_indexed_outside(connection, &destination_path, &hash)? {
+                plan.already_on_computer += 1;
+            }
         }
     }
 
@@ -188,6 +196,7 @@ fn execute_consolidation_with_connection(
         duplicate_files: 0,
         new_bytes: 0,
         duplicate_bytes: 0,
+        already_on_computer: 0,
     };
     let mut copied_files = 0;
     let mut copied_bytes = 0;
@@ -254,6 +263,9 @@ fn execute_consolidation_with_connection(
         } else {
             plan.new_files += 1;
             plan.new_bytes += hashed.source.size_bytes;
+            if hash_indexed_outside(&transaction, &destination_path, &hashed.hash)? {
+                plan.already_on_computer += 1;
+            }
             copy_content(&hashed)?;
             insert_content(&transaction, &hashed)?;
             copied_files += 1;
@@ -333,8 +345,8 @@ fn index_imported_file(
         "
         INSERT INTO files (
           root_path, absolute_path, relative_path, category, source,
-          extension, size_bytes, modified_unix, indexed_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, CURRENT_TIMESTAMP)
+          extension, size_bytes, modified_unix, content_hash, indexed_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, CURRENT_TIMESTAMP)
         ON CONFLICT(absolute_path) DO UPDATE SET
           root_path = excluded.root_path,
           relative_path = excluded.relative_path,
@@ -343,6 +355,7 @@ fn index_imported_file(
           extension = excluded.extension,
           size_bytes = excluded.size_bytes,
           modified_unix = excluded.modified_unix,
+          content_hash = excluded.content_hash,
           indexed_at = CURRENT_TIMESTAMP
         ",
         params![
@@ -354,6 +367,7 @@ fn index_imported_file(
             file.source.extension,
             file.source.size_bytes as i64,
             file.source.modified_unix,
+            file.hash,
         ],
     )?;
     Ok(())
@@ -541,6 +555,27 @@ fn content_exists_in_transaction(
         .is_some())
 }
 
+/// True when this content hash is already indexed in a folder on the computer that
+/// lives OUTSIDE the consolidated library (i.e. an external folder the user pointed
+/// the gallery at, not a library object under `destination`). Used to flag, in the
+/// import preview, files the user already has elsewhere. `&Transaction` coerces to
+/// `&Connection` via `Deref`, so plan and execute share this one helper.
+fn hash_indexed_outside(
+    connection: &Connection,
+    destination: &Path,
+    hash: &str,
+) -> Result<bool, LibraryError> {
+    let mut statement =
+        connection.prepare("SELECT absolute_path FROM files WHERE content_hash = ?1")?;
+    let rows = statement.query_map(params![hash], |row| row.get::<_, String>(0))?;
+    for row in rows {
+        if !Path::new(&row?).starts_with(destination) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 fn content_storage_path(destination_path: &Path, hash: &str, extension: Option<&str>) -> PathBuf {
     let shard = &hash[..2];
     let file_name = if let Some(extension) = extension.filter(|value| !value.is_empty()) {
@@ -712,6 +747,38 @@ mod tests {
         assert!(gallery
             .iter()
             .all(|file| file.absolute_path.contains("objects")));
+    }
+
+    #[test]
+    fn flags_files_already_indexed_outside_the_library() {
+        let temp = tempdir().unwrap();
+        let external = temp.path().join("external");
+        let source = temp.path().join("source");
+        let library = temp.path().join("library");
+        fs::create_dir_all(external.join("Photo")).unwrap();
+        fs::create_dir_all(source.join("DCIM")).unwrap();
+        // Same content lives in an external indexed folder and on the "phone".
+        fs::write(external.join("Photo/keep.jpg"), [7, 7, 7, 7]).unwrap();
+        fs::write(source.join("DCIM/from_phone.jpg"), [7, 7, 7, 7]).unwrap();
+
+        let mut connection = Connection::open_in_memory().unwrap();
+        db::initialize(&connection).unwrap();
+        // Index the external folder so its hash lands in files.content_hash.
+        db::index_multimedia(&mut connection, &external).unwrap();
+
+        let config = ConsolidationConfig {
+            source_path: source.to_string_lossy().into_owned(),
+            destination_path: library.to_string_lossy().into_owned(),
+            adapter: "test".to_string(),
+            label: "Phone".to_string(),
+            device_id: None,
+            device_label: None,
+        };
+        let plan = plan_consolidation_with_connection(&connection, config).unwrap();
+        // Not in the library yet, so it is still "new" and will be copied in…
+        assert_eq!(plan.new_files, 1);
+        // …but the preview flags that the user already has it in the external folder.
+        assert_eq!(plan.already_on_computer, 1);
     }
 
     #[test]

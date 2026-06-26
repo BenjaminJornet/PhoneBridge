@@ -10,8 +10,10 @@ import type {
   ConsolidationConfig,
   ConsolidationPlan,
   ConsolidationResult,
+  DuplicateScanResult,
   IndexedFile,
   IndexSummary,
+  TrashResult,
   SmartSwitchArchiveInventory,
   SmartSwitchCategory,
   SmartSwitchItemMetric,
@@ -117,6 +119,32 @@ export function listIndexedFiles(category?: string, limit = 120, offset = 0): Pr
   return invokeIfAvailable("list_indexed_files", [], { category, limit, offset });
 }
 
+export function findDuplicateFiles(category?: string): Promise<DuplicateScanResult> {
+  return invokeIfAvailable("find_duplicate_files", {
+    groups: [],
+    totalGroups: 0,
+    reclaimableBytes: 0,
+    scannedCandidates: 0,
+  }, { category });
+}
+
+export function findSimilarPhotos(): Promise<DuplicateScanResult> {
+  return invokeIfAvailable("find_similar_photos", {
+    groups: [],
+    totalGroups: 0,
+    reclaimableBytes: 0,
+    scannedCandidates: 0,
+  });
+}
+
+export function moveFilesToTrash(paths: string[]): Promise<TrashResult> {
+  return invokeIfAvailable("move_files_to_trash", {
+    trashed: 0,
+    removedFromIndex: 0,
+    errors: [],
+  }, { paths });
+}
+
 export function getSmartSwitchItemMetrics(): Promise<SmartSwitchItemMetric[]> {
   return invokeIfAvailable("get_smartswitch_item_metrics", []);
 }
@@ -155,6 +183,7 @@ export function planConsolidation(config: ConsolidationConfig): Promise<Consolid
     duplicateFiles: 0,
     newBytes: 0,
     duplicateBytes: 0,
+    alreadyOnComputer: 0,
   }, { config });
 }
 
@@ -171,6 +200,7 @@ export function runConsolidation(config: ConsolidationConfig): Promise<Consolida
       duplicateFiles: 0,
       newBytes: 0,
       duplicateBytes: 0,
+      alreadyOnComputer: 0,
     },
     copiedFiles: 0,
     duplicateFiles: 0,

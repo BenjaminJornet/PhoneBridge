@@ -14,6 +14,18 @@ export function formatCount(value: number): string {
   return new Intl.NumberFormat("en-US").format(value);
 }
 
+/** Format a Unix timestamp (seconds) as a short human date, or "—" when absent. */
+export function formatDate(unixSeconds?: number): string {
+  if (!unixSeconds || !Number.isFinite(unixSeconds)) {
+    return "—";
+  }
+  return new Date(unixSeconds * 1000).toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+}
+
 const CATEGORY_LABELS: Record<string, string> = {
   photo: "Photos",
   video: "Videos",

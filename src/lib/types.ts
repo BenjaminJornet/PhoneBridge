@@ -131,6 +131,26 @@ export interface AdbPullResult {
   cancelled: boolean;
 }
 
+export interface DuplicateGroup {
+  hash: string;
+  sizeBytes: number;
+  reclaimableBytes: number;
+  files: IndexedFile[];
+}
+
+export interface DuplicateScanResult {
+  groups: DuplicateGroup[];
+  totalGroups: number;
+  reclaimableBytes: number;
+  scannedCandidates: number;
+}
+
+export interface TrashResult {
+  trashed: number;
+  removedFromIndex: number;
+  errors: string[];
+}
+
 export interface AdbDiagnosticDevice {
   sourceId: string;
   label: string;
@@ -196,6 +216,9 @@ export interface ConsolidationPlan {
   duplicateFiles: number;
   newBytes: number;
   duplicateBytes: number;
+  /** New-to-the-library files that already exist in a folder indexed elsewhere on
+   *  the computer. Informational — they are still copied into the library. */
+  alreadyOnComputer: number;
 }
 
 export interface ConsolidationResult {

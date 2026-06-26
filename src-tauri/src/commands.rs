@@ -182,6 +182,51 @@ pub async fn run_consolidation(
 }
 
 #[tauri::command]
+pub async fn find_duplicate_files(
+    window: tauri::Window,
+    category: Option<String>,
+) -> Result<db::DuplicateScanResult, String> {
+    use tauri::Emitter;
+    tauri::async_runtime::spawn_blocking(move || {
+        db::find_default_duplicate_files(category, |done, total| {
+            let _ = window.emit(
+                "duplicate-scan-progress",
+                serde_json::json!({ "done": done, "total": total }),
+            );
+        })
+    })
+    .await
+    .map_err(|err| err.to_string())?
+    .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+pub async fn find_similar_photos(
+    window: tauri::Window,
+) -> Result<db::DuplicateScanResult, String> {
+    use tauri::Emitter;
+    tauri::async_runtime::spawn_blocking(move || {
+        db::find_default_similar_photos(|done, total| {
+            let _ = window.emit(
+                "similar-scan-progress",
+                serde_json::json!({ "done": done, "total": total }),
+            );
+        })
+    })
+    .await
+    .map_err(|err| err.to_string())?
+    .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+pub async fn move_files_to_trash(paths: Vec<String>) -> Result<db::TrashResult, String> {
+    tauri::async_runtime::spawn_blocking(move || db::move_files_to_trash(paths))
+        .await
+        .map_err(|err| err.to_string())?
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
 pub fn list_backup_coverage() -> Result<Vec<BackupCoverage>, String> {
     library::list_backup_coverage().map_err(|err| err.to_string())
 }

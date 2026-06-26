@@ -745,6 +745,9 @@ export default function Sync({ onNavigate }: SyncProps) {
             <div className="summaryBox heroSummary">
               <strong>{formatCount(consolidationPlan.newFiles)} new · {formatCount(consolidationPlan.duplicateFiles)} already in your library</strong>
               <span>{formatBytes(consolidationPlan.newBytes)} of new data · {formatBytes(consolidationPlan.duplicateBytes)} already covered</span>
+              {consolidationPlan.alreadyOnComputer > 0 && (
+                <small>{formatCount(consolidationPlan.alreadyOnComputer)} of the new files already exist in another folder you indexed — they'll still be copied in so your library stays self-contained.</small>
+              )}
             </div>
             {progress && (
               <div className="summaryBox">

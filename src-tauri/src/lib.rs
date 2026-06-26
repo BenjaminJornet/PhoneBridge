@@ -39,6 +39,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::detect_adb_devices,
             commands::diagnose_adb,
+            commands::find_duplicate_files,
+            commands::find_similar_photos,
+            commands::move_files_to_trash,
             commands::get_adapter_registry,
             commands::get_category_metrics,
             commands::get_smartswitch_archive_inventory,

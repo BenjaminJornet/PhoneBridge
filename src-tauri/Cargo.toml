@@ -19,6 +19,7 @@ aes-gcm = "0.10"
 cbc = "0.1"
 flate2 = "1.0"
 hmac = "0.12"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "gif", "webp", "bmp", "tiff"] }
 md-5 = "0.10"
 rusqlite = { version = "0.32", features = ["bundled"] }
 quick-xml = "0.38"
@@ -28,6 +29,7 @@ sha2 = "0.10"
 tauri = { version = "=2.11.2", features = ["protocol-asset"] }
 tauri-plugin-dialog = "2.4"
 thiserror = "2.0"
+trash = "5.2"
 time = "0.3.47"
 walkdir = "2.5"
 zip = { version = "2.2", default-features = false, features = ["deflate"] }
