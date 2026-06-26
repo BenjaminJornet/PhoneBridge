@@ -4,6 +4,7 @@ import Dashboard from "./pages/Dashboard";
 import Gallery from "./pages/Gallery";
 import Sync from "./pages/Sync";
 import DataExplorer from "./pages/DataExplorer";
+import { disableEscapeCapture, enableEscapeCapture } from "./lib/api";
 
 type Page = "dashboard" | "sync" | "gallery" | "data";
 type Theme = "light" | "dark";
@@ -60,6 +61,14 @@ export default function App() {
 
   useEffect(() => {
     document.title = "PhoneBridge";
+  }, []);
+
+  // Pre-register the Escape global shortcut once at app startup. The Rust ref-count keeps it
+  // active while the app runs, so any modal's enableEscapeCapture() increments an already-
+  // registered shortcut (no IPC round-trip needed at the moment the modal opens).
+  useEffect(() => {
+    void enableEscapeCapture();
+    return () => { void disableEscapeCapture(); };
   }, []);
 
   useEffect(() => {

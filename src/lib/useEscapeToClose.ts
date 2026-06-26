@@ -21,14 +21,18 @@ export function useEscapeToClose(onClose: () => void): void {
     let unlisten: (() => void) | undefined;
     let mounted = true;
 
-    void enableEscapeCapture();
-    void listen("modal-escape", () => onCloseRef.current()).then((fn) => {
+    async function setup() {
+      const [, fn] = await Promise.all([
+        enableEscapeCapture(),
+        listen("modal-escape", () => onCloseRef.current()),
+      ]);
       if (mounted) {
         unlisten = fn;
       } else {
         fn();
       }
-    });
+    }
+    void setup();
 
     function onKey(event: KeyboardEvent) {
       if (event.key === "Escape") {
