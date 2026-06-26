@@ -1,6 +1,7 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { useEffect, useRef } from "react";
 import { openFile, revealInFinder } from "../lib/api";
+import { useEscapeToClose } from "../lib/useEscapeToClose";
 import { formatBytes, formatCategoryLabel } from "../lib/format";
 import type { IndexedFile } from "../lib/types";
 
@@ -18,17 +19,7 @@ export default function Lightbox({ file, onClose }: LightboxProps) {
     panelRef.current?.focus();
   }, []);
 
-  useEffect(() => {
-    function onKey(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        onClose();
-      }
-    }
-    // capture: true fires before any child handler and works even if the
-    // WebView focus hasn't yet been set on the panel element.
-    document.addEventListener("keydown", onKey, true);
-    return () => document.removeEventListener("keydown", onKey, true);
-  }, [onClose]);
+  useEscapeToClose(onClose);
 
   const canDisplayNatively = Boolean(file.extension && webDisplayableExtensions.has(file.extension.toLowerCase()));
   const canDisplay = canDisplayNatively || Boolean(file.thumbnailPath);

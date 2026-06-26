@@ -1,6 +1,7 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { useEffect, useRef, useState } from "react";
 import { openFile, revealInFinder } from "../lib/api";
+import { useEscapeToClose } from "../lib/useEscapeToClose";
 import { formatBytes, formatCategoryLabel, formatDate } from "../lib/format";
 import type { DuplicateGroup, IndexedFile } from "../lib/types";
 
@@ -24,15 +25,7 @@ export default function DuplicateCompare({ group, kind, onClose, onTrashFile }: 
     panelRef.current?.focus();
   }, []);
 
-  useEffect(() => {
-    function onKey(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        onClose();
-      }
-    }
-    document.addEventListener("keydown", onKey, true);
-    return () => document.removeEventListener("keydown", onKey, true);
-  }, [onClose]);
+  useEscapeToClose(onClose);
 
   async function handleTrash(file: IndexedFile) {
     if (confirmingId !== file.id) {
@@ -57,14 +50,6 @@ export default function DuplicateCompare({ group, kind, onClose, onTrashFile }: 
         ref={panelRef}
         tabIndex={-1}
         onClick={(event) => event.stopPropagation()}
-        onKeyDown={(event) => {
-          // Panel-level fallback: the document-capture listener above should
-          // already catch Escape, but a focused button inside the panel can
-          // swallow the key event before it reaches the document in the WebView.
-          if (event.key === "Escape") {
-            onClose();
-          }
-        }}
         role="dialog"
         aria-modal="true"
         aria-label="Compare duplicate copies"

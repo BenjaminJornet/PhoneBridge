@@ -9,8 +9,9 @@ use crate::smartswitch::{
 };
 use crate::sync::{self, SmartSwitchCategory, SmartSwitchSyncConfig, SmartSwitchSyncResult};
 use crate::whatsapp::{self, WhatsAppDecryptConfig, WhatsAppDecryptResult};
-use crate::PullCancelToken;
+use crate::{EscapeCapture, PullCancelToken};
 use std::path::PathBuf;
+use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Shortcut};
 
 #[tauri::command]
 pub fn scan_backup_sources() -> Result<Vec<BackupSource>, String> {
@@ -248,4 +249,48 @@ pub fn reveal_in_finder(path: String) -> Result<(), String> {
         .spawn()
         .map(|_| ())
         .map_err(|err| err.to_string())
+}
+
+fn escape_shortcut() -> Shortcut {
+    Shortcut::new(None, Code::Escape)
+}
+
+/// Register the native Escape shortcut while a modal is open. Ref-counted so nested modals
+/// (e.g. lightbox over compare) each enable/disable independently; the shortcut is only live
+/// while at least one modal wants it, so Escape is never stolen from the rest of the app.
+#[tauri::command]
+pub fn enable_escape_capture(
+    app: tauri::AppHandle,
+    capture: tauri::State<'_, EscapeCapture>,
+) -> Result<(), String> {
+    let mut count = capture
+        .0
+        .lock()
+        .map_err(|_| "escape capture state poisoned".to_string())?;
+    if *count == 0 {
+        app.global_shortcut()
+            .register(escape_shortcut())
+            .map_err(|err| err.to_string())?;
+    }
+    *count += 1;
+    Ok(())
+}
+
+/// Drop one modal's claim on the native Escape shortcut; unregisters it once no modal remains.
+#[tauri::command]
+pub fn disable_escape_capture(
+    app: tauri::AppHandle,
+    capture: tauri::State<'_, EscapeCapture>,
+) -> Result<(), String> {
+    let mut count = capture
+        .0
+        .lock()
+        .map_err(|_| "escape capture state poisoned".to_string())?;
+    if *count > 0 {
+        *count -= 1;
+        if *count == 0 {
+            let _ = app.global_shortcut().unregister(escape_shortcut());
+        }
+    }
+    Ok(())
 }

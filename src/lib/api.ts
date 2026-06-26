@@ -221,3 +221,13 @@ export async function revealInFinder(path: string): Promise<void> {
 export function listBackupCoverage(): Promise<BackupCoverage[]> {
   return invokeIfAvailable("list_backup_coverage", []);
 }
+
+/** Ask the native layer to capture Escape while a modal is open (see useEscapeToClose). */
+export async function enableEscapeCapture(): Promise<void> {
+  return invokeIfAvailable("enable_escape_capture", undefined);
+}
+
+/** Release this modal's claim on the native Escape shortcut. */
+export async function disableEscapeCapture(): Promise<void> {
+  return invokeIfAvailable("disable_escape_capture", undefined);
+}

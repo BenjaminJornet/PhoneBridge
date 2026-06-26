@@ -12,10 +12,17 @@ mod whatsapp;
 
 use std::sync::{
     atomic::{AtomicBool, Ordering},
-    Arc,
+    Arc, Mutex,
 };
 
+use tauri::Emitter;
+
 pub struct PullCancelToken(pub Arc<AtomicBool>);
+
+/// Ref-count of currently-open modals that want Escape captured at the native layer. The
+/// global Escape shortcut is registered while this is > 0 and unregistered when it drops to 0,
+/// so Escape is only intercepted while a modal is on screen. See `commands::enable_escape_capture`.
+pub struct EscapeCapture(pub Mutex<u32>);
 
 impl PullCancelToken {
     pub fn new() -> Self {
@@ -35,7 +42,20 @@ impl PullCancelToken {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_handler(|app, _shortcut, event| {
+                    // Only the modal-gated Escape shortcut is ever registered; relay its press
+                    // to the webview, which closes the open modal (works around macOS WKWebView
+                    // swallowing the Escape keydown before JS sees it).
+                    if event.state() == tauri_plugin_global_shortcut::ShortcutState::Pressed {
+                        let _ = app.emit("modal-escape", ());
+                    }
+                })
+                .build(),
+        )
         .manage(PullCancelToken::new())
+        .manage(EscapeCapture(Mutex::new(0)))
         .invoke_handler(tauri::generate_handler![
             commands::detect_adb_devices,
             commands::diagnose_adb,
@@ -62,6 +82,8 @@ pub fn run() {
             commands::cancel_pull_from_device,
             commands::open_file,
             commands::reveal_in_finder,
+            commands::enable_escape_capture,
+            commands::disable_escape_capture,
         ])
         .run(tauri::generate_context!())
         .expect("failed to run PhoneBridge");
